@@ -1,0 +1,8 @@
+{
+  "name": "Remix: G-Code Studio",
+  "description": "Powerful utility for generating FluidNC compatible G-code from text, images, DXF CAD vectors, and AI designs, featuring a real-time live preview and simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
