@@ -469,6 +469,7 @@ fun BeginnerGuideBanner(activeTab: String, lang: String) {
 @Composable
 fun TextCreatorPane(viewModel: GCodeViewModel) {
     val lang = viewModel.language
+    val scope = rememberCoroutineScope()
     val tPrompt = if (lang == "id") "Masukkan Teks Desain Anda" else "Enter Your Design Text"
     val tPlaceholder = if (lang == "id") "Tulis teks di sini (misal: CNC)" else "Write text here (e.g., CNC)"
     val tHeight = if (lang == "id") "Tinggi Huruf (mm): ${viewModel.creatorTextSize.toInt()} mm" else "Font Height (mm): ${viewModel.creatorTextSize.toInt()} mm"
@@ -699,27 +700,35 @@ fun TextCreatorPane(viewModel: GCodeViewModel) {
                     contract = ActivityResultContracts.GetContent()
                 ) { uri ->
                     if (uri != null) {
-                        try {
-                            val resolver = context.contentResolver
-                            var fileName = "user_font.ttf"
-                            val cursor = resolver.query(uri, null, null, null, null)
-                            cursor?.use { c ->
-                                if (c.moveToFirst()) {
-                                    val nameIdx = c.getColumnIndex("display_name")
-                                    if (nameIdx != -1) {
-                                        fileName = c.getString(nameIdx)
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val resolver = context.contentResolver
+                                var fileName = "user_font.ttf"
+                                val cursor = resolver.query(uri, null, null, null, null)
+                                cursor?.use { c ->
+                                    if (c.moveToFirst()) {
+                                        val nameIdx = c.getColumnIndex("display_name")
+                                        if (nameIdx != -1) {
+                                            fileName = c.getString(nameIdx)
+                                        }
                                     }
                                 }
+                                val isStream = resolver.openInputStream(uri)
+                                if (isStream != null) {
+                                    viewModel.importFont(fileName, isStream)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        Toast.makeText(context, if (lang == "id") "Font berhasil diimpor!" else "Font imported successfully!", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        Toast.makeText(context, "Could not read font file", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    Toast.makeText(context, "Error importing: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                            val isStream = resolver.openInputStream(uri)
-                            if (isStream != null) {
-                                viewModel.importFont(fileName, isStream)
-                                Toast.makeText(context, if (lang == "id") "Font berhasil diimpor!" else "Font imported successfully!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Could not read font file", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error importing: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -765,6 +774,7 @@ fun TextCreatorPane(viewModel: GCodeViewModel) {
 @Composable
 fun SketchAndImagePane(viewModel: GCodeViewModel) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lang = viewModel.language
     val tSketchHeader = if (lang == "id") "A. Kanvas Sketsa Manual" else "A. Freehand CAD Sketching Area"
     val tSketchSub = if (lang == "id") "Gambarkan pola garis Anda langsung dengan sentuhan:" else "Draw custom toolpaths directly using touch events:"
@@ -783,20 +793,60 @@ fun SketchAndImagePane(viewModel: GCodeViewModel) {
     val drawPoints = remember { mutableStateListOf<List<Offset>>() }
     var currentDrawLine = remember { mutableStateListOf<Offset>() }
 
-    // Setup photo/gallery picker
+    // Setup photo/gallery picker with IO context & automatic memory-safe scaling
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            try {
-                val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-                val bmp = BitmapFactory.decodeStream(inputStream)
-                if (bmp != null) {
-                    viewModel.importedBitmap = bmp
-                    Toast.makeText(context, if (lang == "id") "Gambar berhasil dimuat!" else "Image loaded successfully!", Toast.LENGTH_SHORT).show()
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    // Query dimensions first to avoid loading massive camera files directly into memory
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, options)
+                    }
+
+                    val reqHeight = 1200
+                    val reqWidth = 1200
+                    var inSampleSize = 1
+                    val height = options.outHeight
+                    val width = options.outWidth
+                    if (height > reqHeight || width > reqWidth) {
+                        val halfHeight = height / 2
+                        val halfWidth = width / 2
+                        while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
+                            inSampleSize *= 2
+                        }
+                    }
+
+                    val decodeOptions = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = false
+                        this.inSampleSize = inSampleSize
+                    }
+
+                    val finalBmp = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, decodeOptions)
+                    }
+
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        if (finalBmp != null) {
+                            viewModel.importedBitmap = finalBmp
+                            Toast.makeText(
+                                context,
+                                if (lang == "id") "Gambar berhasil dimuat!" else "Image loaded successfully!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(context, "Error: Could not decode image", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Error decoding image: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error decoding image: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -2101,17 +2151,23 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
         contract = ActivityResultContracts.CreateDocument("text/plain"),
         onResult = { uri ->
             if (uri != null) {
-                try {
-                    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                        outputStream.write(viewModel.currentGCode.toByteArray(kotlin.text.Charsets.UTF_8))
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                            outputStream.write(viewModel.currentGCode.toByteArray(kotlin.text.Charsets.UTF_8))
+                        }
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                if (lang == "id") "Berkas G-code (.nc) berhasil disimpan!" else "G-code file (.nc) saved successfully!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    Toast.makeText(
-                        context,
-                        if (lang == "id") "Berkas G-code (.nc) berhasil disimpan!" else "G-code file (.nc) saved successfully!",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
