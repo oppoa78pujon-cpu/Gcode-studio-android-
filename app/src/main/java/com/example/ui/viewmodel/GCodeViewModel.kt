@@ -12,6 +12,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.Project
 import com.example.data.ProjectRepository
+import com.example.data.RouterBit
+import com.example.data.RouterBitRepository
 import com.example.service.GeminiService
 import com.example.utils.GCodeCompiler
 import com.example.utils.GCodeParser
@@ -29,6 +31,8 @@ import java.io.File
 class GCodeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: ProjectRepository
+    private val routerBitRepository: RouterBitRepository
+    val allRouterBits: StateFlow<List<RouterBit>>
 
     // Global settings and state
     var language by mutableStateOf("id") // "id" for Indonesian, "en" for English
@@ -463,13 +467,42 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
-        val projectDao = AppDatabase.getDatabase(application).projectDao()
+        val db = AppDatabase.getDatabase(application)
+        val projectDao = db.projectDao()
         repository = ProjectRepository(projectDao)
         allProjects = repository.allProjects.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+        val routerBitDao = db.routerBitDao()
+        routerBitRepository = RouterBitRepository(routerBitDao)
+        allRouterBits = routerBitRepository.allRouterBits.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            if (routerBitRepository.getCount() == 0) {
+                val defaults = listOf(
+                    RouterBit(name = "Straight Flute (3.175mm)", type = "Straight Flute", diameter = 3.175f, flutes = 2, isCustom = false),
+                    RouterBit(name = "Upcut Spiral (2.0mm)", type = "Upcut Spiral", diameter = 2.0f, flutes = 1, isCustom = false),
+                    RouterBit(name = "Downcut Spiral (3.175mm)", type = "Downcut Spiral", diameter = 3.175f, flutes = 2, isCustom = false),
+                    RouterBit(name = "V-Bit (60-Degree Engraving)", type = "V-Bit", diameter = 3.175f, flutes = 1, isCustom = false),
+                    RouterBit(name = "V-Bit (90-Degree Chamfer)", type = "V-Bit", diameter = 6.35f, flutes = 2, isCustom = false),
+                    RouterBit(name = "Ball Nose Mill (1.5mm)", type = "Ball Nose", diameter = 1.5f, flutes = 2, isCustom = false),
+                    RouterBit(name = "Ball Nose Mill (3.175mm)", type = "Ball Nose", diameter = 3.175f, flutes = 2, isCustom = false),
+                    RouterBit(name = "Compression Bit (3.175mm)", type = "Compression", diameter = 3.175f, flutes = 2, isCustom = false),
+                    RouterBit(name = "T-Slot Router Bit (9.5mm)", type = "T-Slot", diameter = 9.5f, flutes = 2, isCustom = false),
+                    RouterBit(name = "Core Box Bit (6.35mm)", type = "Core Box", diameter = 6.35f, flutes = 2, isCustom = false)
+                )
+                defaults.forEach {
+                    routerBitRepository.insertRouterBit(it)
+                }
+            }
+        }
 
         // Load theme choice
         val appPrefs = application.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
@@ -863,6 +896,27 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     fun clearAllProjects() {
         viewModelScope.launch {
             repository.deleteAll()
+        }
+    }
+
+    fun insertRouterBit(bit: RouterBit) {
+        viewModelScope.launch {
+            routerBitRepository.insertRouterBit(bit)
+        }
+    }
+
+    fun updateRouterBit(bit: RouterBit) {
+        viewModelScope.launch {
+            routerBitRepository.updateRouterBit(bit)
+        }
+    }
+
+    fun deleteRouterBit(bit: RouterBit) {
+        viewModelScope.launch {
+            routerBitRepository.deleteRouterBit(bit)
+            if (routerBitType == bit.name) {
+                routerBitType = "Straight Flute (3.175mm)"
+            }
         }
     }
 

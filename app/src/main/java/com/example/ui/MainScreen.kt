@@ -2829,8 +2829,17 @@ fun ProjectsPane(viewModel: GCodeViewModel) {
 @Composable
 fun SettingsPane(viewModel: GCodeViewModel) {
     val lang = viewModel.language
+    val context = androidx.compose.ui.platform.LocalContext.current
     val tTitle = if (lang == "id") "Pengaturan CNC & Mesin (FluidNC)" else "Machine & FluidNC Config"
     val tSub = if (lang == "id") "Sesuaikan parameter perangkat keras, feedrate, kecepatan spindle, dan inisialisasi G-code:" else "Configure raw feedrates, safety coordinates, and customized tool codes:"
+
+    var showAddBitDialog by remember { mutableStateOf(false) }
+    var showEditBitDialog by remember { mutableStateOf<com.example.data.RouterBit?>(null) }
+
+    var bitNameInput by remember { mutableStateOf("") }
+    var bitTypeInput by remember { mutableStateOf("Straight Flute") }
+    var bitDiameterInput by remember { mutableStateOf("3.175") }
+    var bitFlutesInput by remember { mutableStateOf(2) }
     
     val tLangTitle = if (lang == "id") "Bahasa Aplikasi (Language)" else "App Language (Bahasa)"
     val tWorkspace = if (lang == "id") "Batas Dimensi Benda Kerja (mm)" else "Workpiece Dimensions (mm)"
@@ -3645,47 +3654,417 @@ fun SettingsPane(viewModel: GCodeViewModel) {
 
                 if (viewModel.toolType == "ROUTER") {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        if (lang == "id") "Pilih Jenis Mata Pisau Router:" else "Select Router Bit Type:",
-                        color = RouterGreen,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
                     
-                    val routerBitsList = listOf(
-                        "Straight Flute (3.175mm)",
-                        "Upcut Spiral (2.0mm)",
-                        "Downcut Spiral (3.175mm)",
-                        "V-Bit (60-Degree Engraving)",
-                        "Ball Nose Mill (1.5mm)"
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (lang == "id") "Pilih Jenis Mata Pisau:" else "Select Router Bit:",
+                            color = RouterGreen,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    bitNameInput = ""
+                                    bitTypeInput = "Straight Flute"
+                                    bitDiameterInput = "3.175"
+                                    bitFlutesInput = 2
+                                    showAddBitDialog = true
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add Bit",
+                                tint = RouterGreen,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                if (lang == "id") "Tambah" else "Add",
+                                color = RouterGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
                     
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val routerBitsFromDb by viewModel.allRouterBits.collectAsStateWithLifecycle()
+                    val routerBitsList = routerBitsFromDb.ifEmpty {
+                        listOf(
+                            com.example.data.RouterBit(id = 1, name = "Straight Flute (3.175mm)", type = "Straight Flute", diameter = 3.175f, flutes = 2, isCustom = false),
+                            com.example.data.RouterBit(id = 2, name = "Upcut Spiral (2.0mm)", type = "Upcut Spiral", diameter = 2.0f, flutes = 1, isCustom = false),
+                            com.example.data.RouterBit(id = 3, name = "Downcut Spiral (3.175mm)", type = "Downcut Spiral", diameter = 3.175f, flutes = 2, isCustom = false),
+                            com.example.data.RouterBit(id = 4, name = "V-Bit (60-Degree Engraving)", type = "V-Bit", diameter = 3.175f, flutes = 1, isCustom = false),
+                            com.example.data.RouterBit(id = 5, name = "Ball Nose Mill (1.5mm)", type = "Ball Nose", diameter = 1.5f, flutes = 2, isCustom = false)
+                        )
+                    }
+                    
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         routerBitsList.forEach { bit ->
-                            val isSelected = viewModel.routerBitType == bit
+                            val isSelected = viewModel.routerBitType == bit.name
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { viewModel.routerBitType = bit }
-                                    .background(if (isSelected) RouterGreen.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                                    .clickable { viewModel.routerBitType = bit.name }
+                                    .background(if (isSelected) RouterGreen.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(6.dp))
+                                    .border(
+                                        BorderStroke(
+                                            1.dp,
+                                            if (isSelected) RouterGreen.copy(alpha = 0.3f) else Color.Transparent
+                                        ),
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(vertical = 4.dp, horizontal = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = isSelected,
-                                    onClick = { viewModel.routerBitType = bit },
+                                    onClick = { viewModel.routerBitType = bit.name },
                                     colors = RadioButtonDefaults.colors(selectedColor = RouterGreen)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    bit,
-                                    color = if (isSelected) RouterGreen else TextLight,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            bit.name,
+                                            color = if (isSelected) RouterGreen else TextLight,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        if (bit.isCustom) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(RouterGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    "KUSTOM",
+                                                    color = RouterGreen,
+                                                    fontSize = 7.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        "Tipe: ${bit.type} • Dia: ${bit.diameter}mm • Flute: ${bit.flutes}",
+                                        color = TextLight.copy(alpha = 0.5f),
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                
+                                if (bit.isCustom) {
+                                    IconButton(
+                                        onClick = {
+                                            bitNameInput = bit.name
+                                            bitTypeInput = bit.type
+                                            bitDiameterInput = bit.diameter.toString()
+                                            bitFlutesInput = bit.flutes
+                                            showEditBitDialog = bit
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit Bit",
+                                            tint = RouterGreen.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                    
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.deleteRouterBit(bit)
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Bit",
+                                            tint = Color.Red.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
+                    }
+
+                    if (showAddBitDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAddBitDialog = false },
+                            title = {
+                                Text(
+                                    if (lang == "id") "Tambah Mata Pisau Custom" else "Add Custom Router Bit",
+                                    color = RouterGreen,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            },
+                            text = {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (lang == "id") "Nama Mata Pisau:" else "Bit Name:", color = TextLight, fontSize = 11.sp)
+                                    OutlinedTextField(
+                                        value = bitNameInput,
+                                        onValueChange = { bitNameInput = it },
+                                        placeholder = { Text("Mata Pisau 6mm", fontSize = 11.sp, color = TextLight.copy(alpha = 0.5f)) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = RouterGreen,
+                                            focusedTextColor = TextLight,
+                                            unfocusedTextColor = TextLight
+                                        )
+                                    )
+
+                                    Text(if (lang == "id") "Jenis Tipe:" else "Bit Type:", color = TextLight, fontSize = 11.sp)
+                                    val types = listOf("Straight Flute", "Upcut Spiral", "Downcut Spiral", "V-Bit", "Ball Nose", "Compression", "T-Slot", "Core Box", "Custom")
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        types.forEach { type ->
+                                            val isSelected = bitTypeInput == type
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) RouterGreen.copy(alpha = 0.15f) else CardDark,
+                                                border = BorderStroke(1.dp, if (isSelected) RouterGreen else TextLight.copy(alpha = 0.2f)),
+                                                modifier = Modifier.clickable { bitTypeInput = type }
+                                            ) {
+                                                Text(
+                                                    text = type,
+                                                    color = if (isSelected) RouterGreen else TextLight,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(if (lang == "id") "Diameter (mm):" else "Diameter (mm):", color = TextLight, fontSize = 11.sp)
+                                            OutlinedTextField(
+                                                value = bitDiameterInput,
+                                                onValueChange = { bitDiameterInput = it },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = RouterGreen,
+                                                    focusedTextColor = TextLight,
+                                                    unfocusedTextColor = TextLight
+                                                )
+                                            )
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(if (lang == "id") "Jumlah Flute:" else "Flutes Count:", color = TextLight, fontSize = 11.sp)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                IconButton(
+                                                    onClick = { if (bitFlutesInput > 1) bitFlutesInput-- },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Text("-", color = RouterGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Text("$bitFlutesInput", color = TextLight, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                IconButton(
+                                                    onClick = { bitFlutesInput++ },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Text("+", color = RouterGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        val diam = bitDiameterInput.toFloatOrNull() ?: 3.175f
+                                        val nameStr = if (bitNameInput.trim().isEmpty()) "$bitTypeInput (${diam}mm)" else bitNameInput.trim()
+                                        viewModel.insertRouterBit(
+                                            com.example.data.RouterBit(
+                                                name = nameStr,
+                                                type = bitTypeInput,
+                                                diameter = diam,
+                                                flutes = bitFlutesInput,
+                                                isCustom = true
+                                            )
+                                        )
+                                        showAddBitDialog = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = RouterGreen, contentColor = SlateDark)
+                                ) {
+                                    Text(if (lang == "id") "Tambah" else "Add", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showAddBitDialog = false }) {
+                                    Text(if (lang == "id") "Batal" else "Cancel", color = TextLight.copy(alpha = 0.6f))
+                                }
+                            }
+                        )
+                    }
+
+                    showEditBitDialog?.let { bitToEdit ->
+                        AlertDialog(
+                            onDismissRequest = { showEditBitDialog = null },
+                            title = {
+                                Text(
+                                    if (lang == "id") "Ubah Mata Pisau" else "Edit Router Bit",
+                                    color = RouterGreen,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            },
+                            text = {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (lang == "id") "Nama Mata Pisau:" else "Bit Name:", color = TextLight, fontSize = 11.sp)
+                                    OutlinedTextField(
+                                        value = bitNameInput,
+                                        onValueChange = { bitNameInput = it },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = RouterGreen,
+                                            focusedTextColor = TextLight,
+                                            unfocusedTextColor = TextLight
+                                        )
+                                    )
+
+                                    Text(if (lang == "id") "Jenis Tipe:" else "Bit Type:", color = TextLight, fontSize = 11.sp)
+                                    val types = listOf("Straight Flute", "Upcut Spiral", "Downcut Spiral", "V-Bit", "Ball Nose", "Compression", "T-Slot", "Core Box", "Custom")
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        types.forEach { type ->
+                                            val isSelected = bitTypeInput == type
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) RouterGreen.copy(alpha = 0.15f) else CardDark,
+                                                border = BorderStroke(1.dp, if (isSelected) RouterGreen else TextLight.copy(alpha = 0.2f)),
+                                                modifier = Modifier.clickable { bitTypeInput = type }
+                                            ) {
+                                                Text(
+                                                    text = type,
+                                                    color = if (isSelected) RouterGreen else TextLight,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(if (lang == "id") "Diameter (mm):" else "Diameter (mm):", color = TextLight, fontSize = 11.sp)
+                                            OutlinedTextField(
+                                                value = bitDiameterInput,
+                                                onValueChange = { bitDiameterInput = it },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = RouterGreen,
+                                                    focusedTextColor = TextLight,
+                                                    unfocusedTextColor = TextLight
+                                                )
+                                            )
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(if (lang == "id") "Jumlah Flute:" else "Flutes Count:", color = TextLight, fontSize = 11.sp)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                IconButton(
+                                                    onClick = { if (bitFlutesInput > 1) bitFlutesInput-- },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Text("-", color = RouterGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Text("$bitFlutesInput", color = TextLight, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                IconButton(
+                                                    onClick = { bitFlutesInput++ },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Text("+", color = RouterGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        val diam = bitDiameterInput.toFloatOrNull() ?: 3.175f
+                                        val nameStr = if (bitNameInput.trim().isEmpty()) "$bitTypeInput (${diam}mm)" else bitNameInput.trim()
+                                        viewModel.updateRouterBit(
+                                            bitToEdit.copy(
+                                                name = nameStr,
+                                                type = bitTypeInput,
+                                                diameter = diam,
+                                                flutes = bitFlutesInput
+                                            )
+                                        )
+                                        showEditBitDialog = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = RouterGreen, contentColor = SlateDark)
+                                ) {
+                                    Text(if (lang == "id") "Simpan" else "Save", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showEditBitDialog = null }) {
+                                    Text(if (lang == "id") "Batal" else "Cancel", color = TextLight.copy(alpha = 0.6f))
+                                }
+                            }
+                        )
                     }
                 }
             }
