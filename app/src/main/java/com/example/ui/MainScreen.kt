@@ -56,6 +56,69 @@ import java.io.InputStream
 import java.io.OutputStreamWriter
 import java.util.Locale
 
+// =========================================================================
+// RESPONSIVE FLEXBOX & ADAPTIVE COMPANION (MEDIA-QUERY BEHAVIOR LIKE CSS FLEXBOX)
+// =========================================================================
+@Composable
+fun ResponsiveFlexLayout(
+    modifier: Modifier = Modifier,
+    breakpointDp: androidx.compose.ui.unit.Dp = 600.dp,
+    spacing: androidx.compose.ui.unit.Dp = 12.dp,
+    content: @Composable ResponsiveFlexScope.() -> Unit
+) {
+    BoxWithConstraints(modifier = modifier) {
+        val isCompact = maxWidth < breakpointDp
+        if (isCompact) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(spacing)
+            ) {
+                ResponsiveFlexScope(isCompact = true, columnScope = this).content()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+                verticalAlignment = Alignment.Top
+            ) {
+                ResponsiveFlexScope(isCompact = false, rowScope = this).content()
+            }
+        }
+    }
+}
+
+class ResponsiveFlexScope(
+    val isCompact: Boolean,
+    val rowScope: RowScope? = null,
+    val columnScope: ColumnScope? = null
+) {
+    @Composable
+    fun FlexItem(
+        modifier: Modifier = Modifier,
+        compactWeight: Float = 1f,
+        expandedWeight: Float = 1f,
+        compactHeight: androidx.compose.ui.unit.Dp? = null,
+        expandedHeight: androidx.compose.ui.unit.Dp? = null,
+        content: @Composable () -> Unit
+    ) {
+        val calculatedModifier = if (isCompact) {
+            var m = modifier.fillMaxWidth()
+            if (compactHeight != null) m = m.height(compactHeight)
+            m
+        } else {
+            val baseMod = rowScope?.let {
+                with(it) { modifier.weight(expandedWeight) }
+            } ?: modifier
+            var m = baseMod
+            if (expandedHeight != null) m = m.height(expandedHeight)
+            m
+        }
+        Box(modifier = calculatedModifier) {
+            content()
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
@@ -747,354 +810,360 @@ fun SketchAndImagePane(viewModel: GCodeViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // --- 1. FREEHAND SKETCH CAD AREA ---
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardDark),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    tSketchHeader,
-                    color = PrimaryCyan,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-                Text(tSketchSub, color = TextLight, fontSize = 12.sp)
-
-                // Interactive Drawing Canvas Frame
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .background(SlateDark)
-                        .border(BorderStroke(1.dp, BorderCyan), RoundedCornerShape(8.dp))
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    currentDrawLine.clear()
-                                    currentDrawLine.add(offset)
-                                },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    // Scale coordinates to fit visual box boundaries
-                                    currentDrawLine.add(change.position)
-                                },
-                                onDragEnd = {
-                                    if (currentDrawLine.isNotEmpty()) {
-                                        drawPoints.add(currentDrawLine.toList())
-                                        currentDrawLine.clear()
-                                    }
-                                }
-                            )
-                        }
+        ResponsiveFlexLayout(spacing = 16.dp) {
+            FlexItem(expandedWeight = 1f) {
+                // --- 1. FREEHAND SKETCH CAD AREA ---
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    // Draw lines onto the actual canvas
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Previous completed paths
-                        for (line in drawPoints) {
-                            if (line.size > 1) {
-                                val p = Path()
-                                p.moveTo(line[0].x, line[0].y)
-                                for (i in 1 until line.size) {
-                                    p.lineTo(line[i].x, line[i].y)
-                                }
-                                drawPath(
-                                    path = p,
-                                    color = PrimaryCyan,
-                                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                                )
-                            }
-                        }
-                        // Current active path drawing
-                        if (currentDrawLine.size > 1) {
-                            val p = Path()
-                            p.moveTo(currentDrawLine[0].x, currentDrawLine[0].y)
-                            for (i in 1 until currentDrawLine.size) {
-                                p.lineTo(currentDrawLine[i].x, currentDrawLine[i].y)
-                            }
-                            drawPath(
-                                path = p,
-                                color = PrimaryCyan,
-                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-                    }
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            tSketchHeader,
+                            color = PrimaryCyan,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(tSketchSub, color = TextLight, fontSize = 12.sp)
 
-                    // Display hint if empty
-                    if (drawPoints.isEmpty() && currentDrawLine.isEmpty()) {
+                        // Interactive Drawing Canvas Frame
                         Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .background(SlateDark)
+                                .border(BorderStroke(1.dp, BorderCyan), RoundedCornerShape(8.dp))
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            currentDrawLine.clear()
+                                            currentDrawLine.add(offset)
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            // Scale coordinates to fit visual box boundaries
+                                            currentDrawLine.add(change.position)
+                                        },
+                                        onDragEnd = {
+                                            if (currentDrawLine.isNotEmpty()) {
+                                                drawPoints.add(currentDrawLine.toList())
+                                                currentDrawLine.clear()
+                                            }
+                                        }
+                                    )
+                                }
                         ) {
-                            Text(
-                                if (lang == "id") "[ Gambarkan Sesuatu Di Sini ]" else "[ Draw Something Here ]",
-                                color = UnselectedGrey,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-
-                // Row of Sketch tools
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { drawPoints.clear(); currentDrawLine.clear() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LaserCrimson),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(tBtnClear, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (drawPoints.isNotEmpty()) {
-                                // Translate canvas points to mm workspace units
-                                val designWidthPx = 300f // approx imaginary pixel size
-                                val designHeightPx = 180f
-                                val scaleX = viewModel.workspaceWidth / designWidthPx
-                                val scaleY = viewModel.workspaceHeight / designHeightPx
-
-                                val convertedPaths = drawPoints.map { path ->
-                                    path.map { pt ->
-                                        Offset(pt.x * scaleX, (designHeightPx - pt.y) * scaleY) // Flip Y to cartesian
+                            // Draw lines onto the actual canvas
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                // Previous completed paths
+                                for (line in drawPoints) {
+                                    if (line.size > 1) {
+                                        val p = Path()
+                                        p.moveTo(line[0].x, line[0].y)
+                                        for (i in 1 until line.size) {
+                                            p.lineTo(line[i].x, line[i].y)
+                                        }
+                                        drawPath(
+                                            path = p,
+                                            color = PrimaryCyan,
+                                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                        )
                                     }
                                 }
-                                viewModel.activePaths = convertedPaths
-                                viewModel.compileCurrentPaths()
-                                Toast.makeText(context, tOkCompiled, Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, if (lang == "id") "Silakan gambar terlebih dahulu!" else "Please draw something first!", Toast.LENGTH_SHORT).show()
+                                // Current active path drawing
+                                if (currentDrawLine.size > 1) {
+                                    val p = Path()
+                                    p.moveTo(currentDrawLine[0].x, currentDrawLine[0].y)
+                                    for (i in 1 until currentDrawLine.size) {
+                                        p.lineTo(currentDrawLine[i].x, currentDrawLine[i].y)
+                                    }
+                                    drawPath(
+                                        path = p,
+                                        color = PrimaryCyan,
+                                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                                    )
+                                }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
-                        modifier = Modifier.weight(1.5f)
-                    ) {
-                        Text(tBtnGencodeSketch, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                            // Display hint if empty
+                            if (drawPoints.isEmpty() && currentDrawLine.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        if (lang == "id") "[ Gambarkan Sesuatu Di Sini ]" else "[ Draw Something Here ]",
+                                        color = UnselectedGrey,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        // Row of Sketch tools
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { drawPoints.clear(); currentDrawLine.clear() },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = LaserCrimson),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(tBtnClear, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (drawPoints.isNotEmpty()) {
+                                        // Translate canvas points to mm workspace units
+                                        val designWidthPx = 300f // approx imaginary pixel size
+                                        val designHeightPx = 180f
+                                        val scaleX = viewModel.workspaceWidth / designWidthPx
+                                        val scaleY = viewModel.workspaceHeight / designHeightPx
+
+                                        val convertedPaths = drawPoints.map { path ->
+                                            path.map { pt ->
+                                                Offset(pt.x * scaleX, (designHeightPx - pt.y) * scaleY) // Flip Y to cartesian
+                                            }
+                                        }
+                                        viewModel.activePaths = convertedPaths
+                                        viewModel.compileCurrentPaths()
+                                        Toast.makeText(context, tOkCompiled, Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, if (lang == "id") "Silakan gambar terlebih dahulu!" else "Please draw something first!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                                modifier = Modifier.weight(1.5f)
+                            ) {
+                                Text(tBtnGencodeSketch, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        // --- 2. IMAGE UPLOAD & PROCESSING CONTROL ---
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardDark),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    tImageHeader,
-                    color = PrimaryCyan,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-
-                // Select image button
-                Button(
-                    onClick = { imagePickerLauncher.launch("image/*") },
-                    colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = PrimaryCyan),
-                    border = BorderStroke(1.dp, PrimaryCyan),
-                    modifier = Modifier.fillMaxWidth()
+            FlexItem(expandedWeight = 1f) {
+                // --- 2. IMAGE UPLOAD & PROCESSING CONTROL ---
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(tChooseFile, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                // Render thumbnail of uploaded image
-                viewModel.importedBitmap?.let { bmp ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SlateDark)
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "Imported Image Thumbnail",
-                            modifier = Modifier
-                                .size(120.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .border(1.dp, PrimaryCyan)
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                if (lang == "id") "Status: Gambar Dimuat" else "Status: Image Ready",
-                                color = SpindleGold,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "${bmp.width} x ${bmp.height} px",
-                                color = UnselectedGrey,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-
-                Divider(color = TravelGray, thickness = 0.5.dp)
-
-                // Process mode selector Radio buttons
-                Column {
-                    Text(
-                        tImgMode,
-                        color = TextLight,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    val modes = listOf(
-                        Triple(ImageToGCodeConverter.ProcessMode.OUTLINE, "Outline Deteksi Tepi (Vektor)", "Cuts edges only"),
-                        Triple(ImageToGCodeConverter.ProcessMode.RASTER, "Sapu Raster S-Power (Laser)", "Grayscale high-speed scan"),
-                        Triple(ImageToGCodeConverter.ProcessMode.DITHER, "Dithered Titik Dot (Ketukan)", "Dotted engraving pattern")
-                    )
-
-                    modes.forEach { (mode, title, desc) ->
-                        val isSelected = viewModel.imageProcessMode == mode
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.imageProcessMode = mode }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { viewModel.imageProcessMode = mode },
-                                colors = RadioButtonDefaults.colors(selectedColor = PrimaryCyan)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    title,
-                                    color = if (isSelected) PrimaryCyan else TextLight,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(desc, color = UnselectedGrey, fontSize = 11.sp)
-                            }
-                        }
-                    }
-                }
-
-                // Invert Colors Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(tInvert, color = TextLight, fontSize = 13.sp)
-                    Switch(
-                        checked = viewModel.imageInvertColors,
-                        onCheckedChange = { viewModel.imageInvertColors = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = PrimaryCyan)
-                    )
-                }
-
-                // Image processing variables sliders
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(tResValue, color = TextLight, fontSize = 13.sp)
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(
-                            "${String.format("%.1f", viewModel.imageResolution)} lines/mm",
+                            tImageHeader,
                             color = PrimaryCyan,
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                    }
-                    Slider(
-                        value = viewModel.imageResolution,
-                        onValueChange = { viewModel.imageResolution = it },
-                        valueRange = 0.5f..5.0f,
-                        colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
-                    )
-                }
 
-                if (viewModel.imageProcessMode != ImageToGCodeConverter.ProcessMode.RASTER) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        // Select image button
+                        Button(
+                            onClick = { imagePickerLauncher.launch("image/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = PrimaryCyan),
+                            border = BorderStroke(1.dp, PrimaryCyan),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(tContrastThreshold, color = TextLight, fontSize = 13.sp)
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(tChooseFile, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        // Render thumbnail of uploaded image
+                        viewModel.importedBitmap?.let { bmp ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(SlateDark)
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Imported Image Thumbnail",
+                                    modifier = Modifier
+                                        .size(120.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .border(1.dp, PrimaryCyan)
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        if (lang == "id") "Status: Gambar Dimuat" else "Status: Image Ready",
+                                        color = SpindleGold,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "${bmp.width} x ${bmp.height} px",
+                                        color = UnselectedGrey,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        Divider(color = TravelGray, thickness = 0.5.dp)
+
+                        // Process mode selector Radio buttons
+                        Column {
                             Text(
-                                String.format("%.2f", viewModel.imageThreshold),
-                                color = PrimaryCyan,
-                                fontSize = 12.sp,
+                                tImgMode,
+                                color = TextLight,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
-                        }
-                        Slider(
-                            value = viewModel.imageThreshold,
-                            onValueChange = { viewModel.imageThreshold = it },
-                            valueRange = 0.1f..0.9f,
-                            colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
-                        )
-                    }
-                }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            val modes = listOf(
+                                Triple(ImageToGCodeConverter.ProcessMode.OUTLINE, "Outline Deteksi Tepi (Vektor)", "Cuts edges only"),
+                                Triple(ImageToGCodeConverter.ProcessMode.RASTER, "Sapu Raster S-Power (Laser)", "Grayscale high-speed scan"),
+                                Triple(ImageToGCodeConverter.ProcessMode.DITHER, "Dithered Titik Dot (Ketukan)", "Dotted engraving pattern")
+                            )
 
-                if (viewModel.imageProcessError != null) {
-                    Text(
-                        text = "Error: ${viewModel.imageProcessError}",
-                        color = Color.Red,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-                }
-
-                // Process Action Button
-                Button(
-                    onClick = {
-                        if (viewModel.importedBitmap != null) {
-                            viewModel.generateImageToolpath()
-                        } else {
-                            Toast.makeText(context, if (lang == "id") "Silakan pilih alternatif gambar terlebih dahulu!" else "Please upload/select an image first!", Toast.LENGTH_SHORT).show()
+                            modes.forEach { (mode, title, desc) ->
+                                val isSelected = viewModel.imageProcessMode == mode
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.imageProcessMode = mode }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.imageProcessMode = mode },
+                                        colors = RadioButtonDefaults.colors(selectedColor = PrimaryCyan)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            title,
+                                            color = if (isSelected) PrimaryCyan else TextLight,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(desc, color = UnselectedGrey, fontSize = 11.sp)
+                                    }
+                                }
+                            }
                         }
-                    },
-                    enabled = !viewModel.isProcessingImage,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimaryCyan,
-                        contentColor = SlateDark,
-                        disabledContainerColor = PrimaryCyan.copy(alpha = 0.5f),
-                        disabledContentColor = SlateDark.copy(alpha = 0.5f)
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    if (viewModel.isProcessingImage) {
-                        CircularProgressIndicator(
-                            color = SlateDark,
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (lang == "id") "MENERJEMAHKAN... (Sabar ya)" else "EXTRACTING... (Please wait)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    } else {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(tGenerateImg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
+                        // Invert Colors Switch
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(tInvert, color = TextLight, fontSize = 13.sp)
+                            Switch(
+                                checked = viewModel.imageInvertColors,
+                                onCheckedChange = { viewModel.imageInvertColors = it },
+                                colors = SwitchDefaults.colors(checkedThumbColor = PrimaryCyan)
+                            )
+                        }
+
+                        // Image processing variables sliders
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(tResValue, color = TextLight, fontSize = 13.sp)
+                                Text(
+                                    "${String.format("%.1f", viewModel.imageResolution)} lines/mm",
+                                    color = PrimaryCyan,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Slider(
+                                value = viewModel.imageResolution,
+                                onValueChange = { viewModel.imageResolution = it },
+                                valueRange = 0.5f..5.0f,
+                                colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
+                            )
+                        }
+
+                        if (viewModel.imageProcessMode != ImageToGCodeConverter.ProcessMode.RASTER) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(tContrastThreshold, color = TextLight, fontSize = 13.sp)
+                                    Text(
+                                        String.format("%.2f", viewModel.imageThreshold),
+                                        color = PrimaryCyan,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Slider(
+                                    value = viewModel.imageThreshold,
+                                    onValueChange = { viewModel.imageThreshold = it },
+                                    valueRange = 0.1f..0.9f,
+                                    colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
+                                )
+                            }
+                        }
+
+                        if (viewModel.imageProcessError != null) {
+                            Text(
+                                text = "Error: ${viewModel.imageProcessError}",
+                                color = Color.Red,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+
+                        // Process Action Button
+                        Button(
+                            onClick = {
+                                if (viewModel.importedBitmap != null) {
+                                    viewModel.generateImageToolpath()
+                                } else {
+                                    Toast.makeText(context, if (lang == "id") "Silakan pilih alternatif gambar terlebih dahulu!" else "Please upload/select an image first!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = !viewModel.isProcessingImage,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PrimaryCyan,
+                                contentColor = SlateDark,
+                                disabledContainerColor = PrimaryCyan.copy(alpha = 0.5f),
+                                disabledContentColor = SlateDark.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            if (viewModel.isProcessingImage) {
+                                CircularProgressIndicator(
+                                    color = SlateDark,
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (lang == "id") "MENERJEMAHKAN... (Sabar ya)" else "EXTRACTING... (Please wait)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            } else {
+                                Icon(Icons.Default.Settings, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(tGenerateImg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -1780,232 +1849,238 @@ N120 M30"""
         }
 
         // Two Column Workspaces: Input Raw & Output NC Standard side-by-side (if size suits, stacked here)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardDark),
-            border = BorderStroke(1.dp, BorderCyan),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        ResponsiveFlexLayout(spacing = 16.dp) {
+            FlexItem(expandedWeight = 1f) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    border = BorderStroke(1.dp, BorderCyan),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        if (lang == "id") "MASUKKAN G-CODE ASAL (PASTE / KETIK)" else "INPUT CNC/MACH3 G-CODE WORKSPACE",
-                        color = PrimaryCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    // Load sample command
-                    Button(
-                        onClick = {
-                            viewModel.converterRawInput = sampleMach3Code
-                            Toast.makeText(context, if (lang == "id") "Contoh berkas Mach3 dimuat!" else "Mach3 sample code loaded!", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue.copy(alpha = 0.15f), contentColor = PrimaryCyan),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp)
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            if (lang == "id") "MUAT CONTOH DESIGN" else "LOAD SAMPLE CODE",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = viewModel.converterRawInput,
-                    onValueChange = { viewModel.converterRawInput = it },
-                    placeholder = {
-                        Text(
-                            if (lang == "id") "Tempel kode Mach3 (.tap / .txt / .cnc) Anda di sini..." 
-                            else "Paste legacy Mach3 G-code instructions here (example: N10 G20 G00 X1.5 Y2.3)...",
-                            fontSize = 11.sp,
-                            color = UnselectedGrey
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .testTag("converter_raw_input_textfield"),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = PrimaryCyan,
-                        unfocusedBorderColor = BorderCyan
-                    ),
-                    maxLines = 15
-                )
-
-                // Large Primary Conversion Trigger Button
-                Button(
-                    onClick = {
-                        if (viewModel.converterRawInput.isBlank()) {
-                            Toast.makeText(context, if (lang == "id") "Input raw G-code masih kosong!" else "Input raw G-code Workspace is empty!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            viewModel.runMach3Conversion()
-                            Toast.makeText(context, if (lang == "id") "Berhasil mengompilasi ke NC Standar!" else "Standard NC file compiled!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("trigger_conversion_btn")
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        if (lang == "id") "TERJEMAHKAN KE NC STANDAR" else "TRANSCOMPILE TO HIGH-PRECISION .NC",
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-
-        // Output Result Section (Only visible after compilation once)
-        if (viewModel.hasConvertedOnce) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.dp, BorderCyan),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Metrics & Log Badge
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            if (lang == "id") "BERKAS NC STANDAR DIHASILKAN (SIAP CNC)" else "STANDARD .NC OUTPUT CODE (CNC READY)",
-                            color = RouterGreen,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Box(
-                            modifier = Modifier
-                                .background(RouterGreen.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                if (lang == "id") "UNIT ASAL: ${viewModel.converterOriginalUnit}" else "ORIGINAL UNIT: ${viewModel.converterOriginalUnit}",
-                                color = RouterGreen,
-                                fontSize = 8.sp,
+                                if (lang == "id") "MASUKKAN G-CODE ASAL (PASTE / KETIK)" else "INPUT CNC/MACH3 G-CODE WORKSPACE",
+                                color = PrimaryCyan,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
+
+                            // Load sample command
+                            Button(
+                                onClick = {
+                                    viewModel.converterRawInput = sampleMach3Code
+                                    Toast.makeText(context, if (lang == "id") "Contoh berkas Mach3 dimuat!" else "Mach3 sample code loaded!", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue.copy(alpha = 0.15f), contentColor = PrimaryCyan),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Text(
+                                    if (lang == "id") "MUAT CONTOH DESIGN" else "LOAD SAMPLE CODE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
-                    }
 
-                    // Display scrollable output NC text field
-                    OutlinedTextField(
-                        value = viewModel.converterOutput,
-                        onValueChange = { viewModel.converterOutput = it },
-                        readOnly = false,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .testTag("converter_processed_output"),
-                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = RouterGreen,
-                            unfocusedBorderColor = BorderCyan
-                        ),
-                        maxLines = 15
-                    )
-
-                    // Logs scrollable readout
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SlateDark, RoundedCornerShape(8.dp))
-                            .border(BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            if (lang == "id") "Laporan Log Perubahan Transpiler:" else "Transpiler Change Audit Log:",
-                            color = PrimaryCyan,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                        OutlinedTextField(
+                            value = viewModel.converterRawInput,
+                            onValueChange = { viewModel.converterRawInput = it },
+                            placeholder = {
+                                Text(
+                                    if (lang == "id") "Tempel kode Mach3 (.tap / .txt / .cnc) Anda di sini..." 
+                                    else "Paste legacy Mach3 G-code instructions here (example: N10 G20 G00 X1.5 Y2.3)...",
+                                    fontSize = 11.sp,
+                                    color = UnselectedGrey
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .testTag("converter_raw_input_textfield"),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryCyan,
+                                unfocusedBorderColor = BorderCyan
+                            ),
+                            maxLines = 15
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (viewModel.converterLog.isEmpty()) {
-                            Text("- " + if (lang == "id") "Semua baris sudah mematuhi standar standar." else "All instruction parameters match standard syntax.", color = UnselectedGrey, fontSize = 9.sp)
-                        } else {
-                            viewModel.converterLog.take(6).forEach { log ->
-                                Text("• $log", color = TextLight.copy(alpha = 0.8f), fontSize = 9.sp, lineHeight = 11.sp)
-                            }
-                            if (viewModel.converterLog.size > 6) {
-                                Text("• ... dan ${viewModel.converterLog.size - 6} perubahan log sekunder lainnya.", color = UnselectedGrey, fontSize = 9.sp)
-                            }
-                        }
-                    }
 
-                    // Action buttons: Clipboard, Simulate / Load Preview, Save
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Copy to clipboard Button
+                        // Large Primary Conversion Trigger Button
                         Button(
                             onClick = {
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                val clip = android.content.ClipData.newPlainText("Standard_NC_Converted_GCode", viewModel.converterOutput)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, if (lang == "id") "NC G-code disalin ke clipboard!" else "NC G-code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentBlue.copy(alpha = 0.2f), contentColor = TextLight),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(44.dp)
-                        ) {
-                            Text(if (lang == "id") "SALIN KODE" else "COPY NC CODE", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-
-                        // Load and Simulate inside direct app preview window
-                        Button(
-                            onClick = {
-                                viewModel.loadConvertedGCodeIntoApp()
-                                Toast.makeText(context, if (lang == "id") "Dimuat! Mengalihkan ke tab simulator..." else "NC toolpath loaded into simulation!", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = RouterGreen, contentColor = SlateDark),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1.2f).height(44.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (lang == "id") "SIMULASI LIVE" else "LIVE SIMULATION", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-
-                        // Save as new local File Project in database
-                        Button(
-                            onClick = {
-                                saveProjectName = "Converted Mach3 NC ${System.currentTimeMillis() % 1000}"
-                                showSaveDialog = true
+                                if (viewModel.converterRawInput.isBlank()) {
+                                    Toast.makeText(context, if (lang == "id") "Input raw G-code masih kosong!" else "Input raw G-code Workspace is empty!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    viewModel.runMach3Conversion()
+                                    Toast.makeText(context, if (lang == "id") "Berhasil mengompilasi ke NC Standar!" else "Standard NC file compiled!", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(44.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("trigger_conversion_btn")
                         ) {
-                            Text(if (lang == "id") "SIMPAN DATA" else "SAVE PROJECT", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (lang == "id") "TERJEMAHKAN KE NC STANDAR" else "TRANSCOMPILE TO HIGH-PRECISION .NC",
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (viewModel.hasConvertedOnce) {
+                FlexItem(expandedWeight = 1f) {
+                    // Output Result Section (Only visible after compilation once)
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        border = BorderStroke(1.dp, BorderCyan),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Metrics & Log Badge
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (lang == "id") "BERKAS NC STANDAR DIHASILKAN (SIAP CNC)" else "STANDARD .NC OUTPUT CODE (CNC READY)",
+                                    color = RouterGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(RouterGreen.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        if (lang == "id") "UNIT ASAL: ${viewModel.converterOriginalUnit}" else "ORIGINAL UNIT: ${viewModel.converterOriginalUnit}",
+                                        color = RouterGreen,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            // Display scrollable output NC text field
+                            OutlinedTextField(
+                                value = viewModel.converterOutput,
+                                onValueChange = { viewModel.converterOutput = it },
+                                readOnly = false,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .testTag("converter_processed_output"),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = RouterGreen,
+                                    unfocusedBorderColor = BorderCyan
+                                ),
+                                maxLines = 15
+                            )
+
+                            // Logs scrollable readout
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(SlateDark, RoundedCornerShape(8.dp))
+                                    .border(BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)), RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    if (lang == "id") "Laporan Log Perubahan Transpiler:" else "Transpiler Change Audit Log:",
+                                    color = PrimaryCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                if (viewModel.converterLog.isEmpty()) {
+                                    Text("- " + if (lang == "id") "Semua baris sudah mematuhi standar standar." else "All instruction parameters match standard syntax.", color = UnselectedGrey, fontSize = 9.sp)
+                                } else {
+                                    viewModel.converterLog.take(6).forEach { log ->
+                                        Text("• $log", color = TextLight.copy(alpha = 0.8f), fontSize = 9.sp, lineHeight = 11.sp)
+                                    }
+                                    if (viewModel.converterLog.size > 6) {
+                                        Text("• ... dan ${viewModel.converterLog.size - 6} perubahan log sekunder lainnya.", color = UnselectedGrey, fontSize = 9.sp)
+                                    }
+                                }
+                            }
+
+                            // Action buttons: Clipboard, Simulate / Load Preview, Save
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Copy to clipboard Button
+                                Button(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("Standard_NC_Converted_GCode", viewModel.converterOutput)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, if (lang == "id") "NC G-code disalin ke clipboard!" else "NC G-code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue.copy(alpha = 0.2f), contentColor = TextLight),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(44.dp)
+                                ) {
+                                    Text(if (lang == "id") "SALIN KODE" else "COPY NC CODE", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+
+                                // Load and Simulate inside direct app preview window
+                                Button(
+                                    onClick = {
+                                        viewModel.loadConvertedGCodeIntoApp()
+                                        Toast.makeText(context, if (lang == "id") "Dimuat! Mengalihkan ke tab simulator..." else "NC toolpath loaded into simulation!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = RouterGreen, contentColor = SlateDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1.2f).height(44.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (lang == "id") "SIMULASI LIVE" else "LIVE SIMULATION", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+
+                                // Save as new local File Project in database
+                                Button(
+                                    onClick = {
+                                        saveProjectName = "Converted Mach3 NC ${System.currentTimeMillis() % 1000}"
+                                        showSaveDialog = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(44.dp)
+                                ) {
+                                    Text(if (lang == "id") "SIMPAN DATA" else "SAVE PROJECT", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
                         }
                     }
                 }
@@ -2091,460 +2166,466 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
             fontFamily = FontFamily.Monospace
         )
 
-        // --- THE INTERACTIVE COORDINATE NAVIGATION TOOLBAR (D3-Style Native Android Visualizer) ---
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                onClick = { is3DView = !is3DView },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (is3DView) PrimaryCyan else SlateDark,
-                    contentColor = if (is3DView) Color.Black else TextLight
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1.3f).height(36.dp),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(if (is3DView) "3D Isometric" else "2D Flat View", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-            }
-
-            Button(
-                onClick = { canvasZoom = (canvasZoom - 0.25f).coerceAtLeast(0.5f) },
-                colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.size(38.dp, 36.dp),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextLight, fontFamily = FontFamily.Monospace)
-            }
-
-            Text(
-                "zoom: x${String.format(java.util.Locale.US, "%.2f", canvasZoom)}",
-                color = TextLight,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
-
-            Button(
-                onClick = { canvasZoom = (canvasZoom + 0.25f).coerceAtMost(5.0f) },
-                colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.size(38.dp, 36.dp),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextLight, fontFamily = FontFamily.Monospace)
-            }
-
-            Button(
-                onClick = {
-                    canvasZoom = 1.0f
-                    panOffsetX = 0f
-                    panOffsetY = 0f
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(0.9f).height(36.dp),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Text(if (lang == "id") "Reset" else "Reset", fontSize = 10.sp, color = TextLight, fontFamily = FontFamily.Monospace)
-            }
-        }
-
-        // --- THE GRAPHICAL SIMULATION CANVAS WINDOW ---
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF141218)),
-            border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        panOffsetX += dragAmount.x
-                        panOffsetY += dragAmount.y
-                    }
-                }
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp)
-                ) {
-                    val canvasW = size.width
-                    val canvasH = size.height
-
-                    // 1. Math scale representing the coordinate bounds
-                    val spaceScaleX = canvasW / viewModel.workspaceWidth
-                    val spaceScaleY = canvasH / viewModel.workspaceHeight
-                    val baseScale = minOf(spaceScaleX, spaceScaleY) * 0.85f
-                    val scale = baseScale * canvasZoom
-
-                    // Coordinate projection transform supporting flat 2D and tilted isometric 3D depths
-                    val transform: (Float, Float, Float) -> Offset = { x, y, z ->
-                        val dx = x - viewModel.workspaceWidth / 2f
-                        val dy = y - viewModel.workspaceHeight / 2f
-                        
-                        if (is3DView) {
-                            val angleRad = java.lang.Math.toRadians(30.0)
-                            val cosA = kotlin.math.cos(angleRad).toFloat()
-                            val sinA = kotlin.math.sin(angleRad).toFloat()
-                            
-                            val projX = (dx - dy) * cosA
-                            val projY = (dx + dy) * sinA - (z * 2.2f)
-                            
-                            Offset(
-                                (canvasW / 2f) + panOffsetX + projX * scale,
-                                (canvasH / 2f) + panOffsetY - projY * scale
+        ResponsiveFlexLayout(spacing = 16.dp) {
+            FlexItem(expandedWeight = 1.2f) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // --- THE INTERACTIVE COORDINATE NAVIGATION TOOLBAR (D3-Style Native Android Visualizer) ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { is3DView = !is3DView },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (is3DView) PrimaryCyan else SlateDark,
+                                contentColor = if (is3DView) Color.Black else TextLight
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.3f).height(36.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp)
                             )
-                        } else {
-                            Offset(
-                                (canvasW / 2f) + panOffsetX + dx * scale,
-                                (canvasH / 2f) + panOffsetY - dy * scale
-                            )
-                        }
-                    }
-
-                    // Render workspace borders
-                    val p00 = transform(0f, 0f, 0f)
-                    val pW0 = transform(viewModel.workspaceWidth, 0f, 0f)
-                    val pWH = transform(viewModel.workspaceWidth, viewModel.workspaceHeight, 0f)
-                    val p0H = transform(0f, viewModel.workspaceHeight, 0f)
-
-                    drawLine(color = BorderCyan.copy(alpha = 0.4f), start = p00, end = pW0, strokeWidth = 1.5.dp.toPx())
-                    drawLine(color = BorderCyan.copy(alpha = 0.4f), start = pW0, end = pWH, strokeWidth = 1.5.dp.toPx())
-                    drawLine(color = BorderCyan.copy(alpha = 0.4f), start = pWH, end = p0H, strokeWidth = 1.5.dp.toPx())
-                    drawLine(color = BorderCyan.copy(alpha = 0.4f), start = p0H, end = p00, strokeWidth = 1.5.dp.toPx())
-
-                    // Render mesh subdivisions (50mm increments)
-                    val gridStep = 50f
-                    var gx = 0f
-                    while (gx <= viewModel.workspaceWidth) {
-                        drawLine(
-                            color = TravelGray.copy(alpha = 0.15f),
-                            start = transform(gx, 0f, 0f),
-                            end = transform(gx, viewModel.workspaceHeight, 0f),
-                            strokeWidth = 1f
-                        )
-                        gx += gridStep
-                    }
-                    var gy = 0f
-                    while (gy <= viewModel.workspaceHeight) {
-                        drawLine(
-                            color = TravelGray.copy(alpha = 0.15f),
-                            start = transform(0f, gy, 0f),
-                            end = transform(viewModel.workspaceWidth, gy, 0f),
-                            strokeWidth = 1f
-                        )
-                        gy += gridStep
-                    }
-
-                    // Draw corner workspace text tags
-                    val pnt = android.graphics.Paint().apply {
-                        color = android.graphics.Color.GRAY
-                        textSize = 8.dp.toPx()
-                        isAntiAlias = true
-                    }
-                    drawContext.canvas.nativeCanvas.drawText("X0 Y0 Z0 (WCS)", p00.x + 4.dp.toPx(), p00.y - 4.dp.toPx(), pnt)
-                    drawContext.canvas.nativeCanvas.drawText("X${viewModel.workspaceWidth.toInt()} Y0", pW0.x - 44.dp.toPx(), pW0.y - 4.dp.toPx(), pnt)
-                    drawContext.canvas.nativeCanvas.drawText("X${viewModel.workspaceWidth.toInt()} Y${viewModel.workspaceHeight.toInt()}", pWH.x - 44.dp.toPx(), pWH.y + 11.dp.toPx(), pnt)
-                    drawContext.canvas.nativeCanvas.drawText("X0 Y${viewModel.workspaceHeight.toInt()}", p0H.x + 4.dp.toPx(), p0H.y + 11.dp.toPx(), pnt)
-
-                    // Draw Work Coordinate System Offset Start pointer target crosshair
-                    val startPtWCS = transform(viewModel.startOffsetX, viewModel.startOffsetY, 0f)
-                    drawCircle(color = Color.Yellow.copy(alpha = 0.8f), radius = 5.dp.toPx(), center = startPtWCS, style = Stroke(width = 1.5.dp.toPx()))
-                    drawLine(color = Color.Yellow.copy(alpha = 0.8f), start = Offset(startPtWCS.x - 10.dp.toPx(), startPtWCS.y), end = Offset(startPtWCS.x + 10.dp.toPx(), startPtWCS.y), strokeWidth = 1.5f)
-                    drawLine(color = Color.Yellow.copy(alpha = 0.8f), start = Offset(startPtWCS.x, startPtWCS.y - 10.dp.toPx()), end = Offset(startPtWCS.x, startPtWCS.y + 10.dp.toPx()), strokeWidth = 1.5f)
-
-                    // 2. Draw parsed segments with backplot
-                    val drawLimit = viewModel.maxSegmentsToDraw.coerceAtMost(viewModel.parsedSegments.size)
-                    for (i in 0 until drawLimit) {
-                        val segment = viewModel.parsedSegments[i]
-                        val startDraw = transform(segment.start.x, segment.start.y, segment.startZ)
-                        val endDraw = transform(segment.end.x, segment.end.y, segment.endZ)
-
-                        // G0 Travel vs Cut lines rendering
-                        if (segment.type == GCodeParser.MoveType.TRAVEL) {
-                            drawLine(
-                                color = TravelGray,
-                                start = startDraw,
-                                end = endDraw,
-                                strokeWidth = 1.2.dp.toPx()
-                            )
-                        } else {
-                            val glowingCyan = when (viewModel.toolType) {
-                                "LASER" -> {
-                                    val intensity = (segment.sPower / 1000f).coerceIn(0.2f, 1.0f)
-                                    PrimaryCyan.copy(alpha = intensity)
-                                }
-                                "SPINDLE" -> SpindleGold
-                                else -> RouterGreen
-                            }
-                            drawLine(
-                                color = glowingCyan,
-                                start = startDraw,
-                                end = endDraw,
-                                strokeWidth = 2.5.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (is3DView) "3D Isometric" else "2D Flat View", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                         }
 
-                        // Render active CNC drawing cursor dot
-                        if (i == drawLimit - 1) {
-                            drawCircle(
-                                color = when (viewModel.toolType) {
-                                    "LASER" -> LaserCrimson
-                                    "SPINDLE" -> SpindleGold
-                                    else -> RouterGreen
-                                },
-                                radius = 6.dp.toPx(),
-                                center = endDraw
-                            )
-                            drawCircle(
-                                color = Color.White,
-                                radius = 2.dp.toPx(),
-                                center = endDraw
-                            )
+                        Button(
+                            onClick = { canvasZoom = (canvasZoom - 0.25f).coerceAtLeast(0.5f) },
+                            colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.size(38.dp, 36.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("-", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextLight, fontFamily = FontFamily.Monospace)
                         }
-                    }
-                }
 
-                // HUD Overlay Status box with rich charcoal/black alpha backdrop
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    color = Color.Black.copy(alpha = 0.65f),
-                    border = BorderStroke(0.5.dp, Color(0xFF49454F))
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
                         Text(
-                            "STATUS HUD",
-                            color = Color(0xFFD0BCFF),
-                            fontSize = 8.sp,
+                            "zoom: x${String.format(java.util.Locale.US, "%.2f", canvasZoom)}",
+                            color = TextLight,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+
+                        Button(
+                            onClick = { canvasZoom = (canvasZoom + 0.25f).coerceAtMost(5.0f) },
+                            colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.size(38.dp, 36.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextLight, fontFamily = FontFamily.Monospace)
+                        }
+
+                        Button(
+                            onClick = {
+                                canvasZoom = 1.0f
+                                panOffsetX = 0f
+                                panOffsetY = 0f
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(0.9f).height(36.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(if (lang == "id") "Reset" else "Reset", fontSize = 10.sp, color = TextLight, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    // --- THE GRAPHICAL SIMULATION CANVAS WINDOW ---
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF141218)),
+                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp)
+                            .pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    panOffsetX += dragAmount.x
+                                    panOffsetY += dragAmount.y
+                                }
+                            }
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Canvas(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(12.dp)
+                            ) {
+                                val canvasW = size.width
+                                val canvasH = size.height
+
+                                // 1. Math scale representing the coordinate bounds
+                                val spaceScaleX = canvasW / viewModel.workspaceWidth
+                                val spaceScaleY = canvasH / viewModel.workspaceHeight
+                                val baseScale = minOf(spaceScaleX, spaceScaleY) * 0.85f
+                                val scale = baseScale * canvasZoom
+
+                                // Coordinate projection transform supporting flat 2D and tilted isometric 3D depths
+                                val transform: (Float, Float, Float) -> Offset = { x, y, z ->
+                                    val dx = x - viewModel.workspaceWidth / 2f
+                                    val dy = y - viewModel.workspaceHeight / 2f
+                                    
+                                    if (is3DView) {
+                                        val angleRad = java.lang.Math.toRadians(30.0)
+                                        val cosA = kotlin.math.cos(angleRad).toFloat()
+                                        val sinA = kotlin.math.sin(angleRad).toFloat()
+                                        
+                                        val projX = (dx - dy) * cosA
+                                        val projY = (dx + dy) * sinA - (z * 2.2f)
+                                        
+                                        Offset(
+                                            (canvasW / 2f) + panOffsetX + projX * scale,
+                                            (canvasH / 2f) + panOffsetY - projY * scale
+                                        )
+                                    } else {
+                                        Offset(
+                                            (canvasW / 2f) + panOffsetX + dx * scale,
+                                            (canvasH / 2f) + panOffsetY - dy * scale
+                                        )
+                                    }
+                                }
+
+                                // Render workspace borders
+                                val p00 = transform(0f, 0f, 0f)
+                                val pW0 = transform(viewModel.workspaceWidth, 0f, 0f)
+                                val pWH = transform(viewModel.workspaceWidth, viewModel.workspaceHeight, 0f)
+                                val p0H = transform(0f, viewModel.workspaceHeight, 0f)
+
+                                drawLine(color = BorderCyan.copy(alpha = 0.4f), start = p00, end = pW0, strokeWidth = 1.5.dp.toPx())
+                                drawLine(color = BorderCyan.copy(alpha = 0.4f), start = pW0, end = pWH, strokeWidth = 1.5.dp.toPx())
+                                drawLine(color = BorderCyan.copy(alpha = 0.4f), start = pWH, end = p0H, strokeWidth = 1.5.dp.toPx())
+                                drawLine(color = BorderCyan.copy(alpha = 0.4f), start = p0H, end = p00, strokeWidth = 1.5.dp.toPx())
+
+                                // Render mesh subdivisions (50mm increments)
+                                val gridStep = 50f
+                                var gx = 0f
+                                while (gx <= viewModel.workspaceWidth) {
+                                    drawLine(
+                                        color = TravelGray.copy(alpha = 0.15f),
+                                        start = transform(gx, 0f, 0f),
+                                        end = transform(gx, viewModel.workspaceHeight, 0f),
+                                        strokeWidth = 1f
+                                    )
+                                    gx += gridStep
+                                }
+                                var gy = 0f
+                                while (gy <= viewModel.workspaceHeight) {
+                                    drawLine(
+                                        color = TravelGray.copy(alpha = 0.15f),
+                                        start = transform(0f, gy, 0f),
+                                        end = transform(viewModel.workspaceWidth, gy, 0f),
+                                        strokeWidth = 1f
+                                    )
+                                    gy += gridStep
+                                }
+
+                                // Draw corner workspace text tags
+                                val pnt = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.GRAY
+                                    textSize = 8.dp.toPx()
+                                    isAntiAlias = true
+                                }
+                                drawContext.canvas.nativeCanvas.drawText("X0 Y0 Z0 (WCS)", p00.x + 4.dp.toPx(), p00.y - 4.dp.toPx(), pnt)
+                                drawContext.canvas.nativeCanvas.drawText("X${viewModel.workspaceWidth.toInt()} Y0", pW0.x - 44.dp.toPx(), pW0.y - 4.dp.toPx(), pnt)
+                                drawContext.canvas.nativeCanvas.drawText("X${viewModel.workspaceWidth.toInt()} Y${viewModel.workspaceHeight.toInt()}", pWH.x - 44.dp.toPx(), pWH.y + 11.dp.toPx(), pnt)
+                                drawContext.canvas.nativeCanvas.drawText("X0 Y${viewModel.workspaceHeight.toInt()}", p0H.x + 4.dp.toPx(), p0H.y + 11.dp.toPx(), pnt)
+
+                                // Draw Work Coordinate System Offset Start pointer target crosshair
+                                val startPtWCS = transform(viewModel.startOffsetX, viewModel.startOffsetY, 0f)
+                                drawCircle(color = Color.Yellow.copy(alpha = 0.8f), radius = 5.dp.toPx(), center = startPtWCS, style = Stroke(width = 1.5.dp.toPx()))
+                                drawLine(color = Color.Yellow.copy(alpha = 0.8f), start = Offset(startPtWCS.x - 10.dp.toPx(), startPtWCS.y), end = Offset(startPtWCS.x + 10.dp.toPx(), startPtWCS.y), strokeWidth = 1.5f)
+                                drawLine(color = Color.Yellow.copy(alpha = 0.8f), start = Offset(startPtWCS.x, startPtWCS.y - 10.dp.toPx()), end = Offset(startPtWCS.x, startPtWCS.y + 10.dp.toPx()), strokeWidth = 1.5f)
+
+                                // 2. Draw parsed segments with backplot
+                                val drawLimit = viewModel.maxSegmentsToDraw.coerceAtMost(viewModel.parsedSegments.size)
+                                for (i in 0 until drawLimit) {
+                                    val segment = viewModel.parsedSegments[i]
+                                    val startDraw = transform(segment.start.x, segment.start.y, segment.startZ)
+                                    val endDraw = transform(segment.end.x, segment.end.y, segment.endZ)
+
+                                    // G0 Travel vs Cut lines rendering
+                                    if (segment.type == GCodeParser.MoveType.TRAVEL) {
+                                        drawLine(
+                                            color = TravelGray,
+                                            start = startDraw,
+                                            end = endDraw,
+                                            strokeWidth = 1.2.dp.toPx()
+                                        )
+                                    } else {
+                                        val glowingCyan = when (viewModel.toolType) {
+                                            "LASER" -> {
+                                                val intensity = (segment.sPower / 1000f).coerceIn(0.2f, 1.0f)
+                                                PrimaryCyan.copy(alpha = intensity)
+                                            }
+                                            "SPINDLE" -> SpindleGold
+                                            else -> RouterGreen
+                                        }
+                                        drawLine(
+                                            color = glowingCyan,
+                                            start = startDraw,
+                                            end = endDraw,
+                                            strokeWidth = 2.5.dp.toPx(),
+                                            cap = StrokeCap.Round
+                                        )
+                                    }
+
+                                    // Render active CNC drawing cursor dot
+                                    if (i == drawLimit - 1) {
+                                        drawCircle(
+                                            color = when (viewModel.toolType) {
+                                                "LASER" -> LaserCrimson
+                                                "SPINDLE" -> SpindleGold
+                                                else -> RouterGreen
+                                            },
+                                            radius = 6.dp.toPx(),
+                                            center = endDraw
+                                        )
+                                        drawCircle(
+                                            color = Color.White,
+                                            radius = 2.dp.toPx(),
+                                            center = endDraw
+                                        )
+                                    }
+                                }
+                            }
+
+                            // HUD Overlay Status box with rich charcoal/black alpha backdrop
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(8.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                border = BorderStroke(0.5.dp, Color(0xFF49454F))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        "STATUS HUD",
+                                        color = Color(0xFFD0BCFF),
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    val curSec = viewModel.parsedSegments.getOrNull(
+                                        (viewModel.maxSegmentsToDraw - 1).coerceAtLeast(0)
+                                    )
+                                    Text(
+                                        "X: ${String.format("%.1f", curSec?.end?.x ?: 0f)} mm",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        "Y: ${String.format("%.1f", curSec?.end?.y ?: 0f)} mm",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        "S-Power: ${curSec?.sPower ?: 0}",
+                                        color = when (viewModel.toolType) {
+                                            "LASER" -> Color(0xFFD0BCFF)
+                                            "SPINDLE" -> SpindleGold
+                                            else -> RouterGreen
+                                        },
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        "Lines: ${viewModel.parsedSegments.size}",
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            // Interactive Zoom/Reset overlay button
+                            IconButton(
+                                onClick = { viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size; viewModel.isSimulating = false },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(8.dp)
+                                    .background(SlateDark, RoundedCornerShape(4.dp))
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Reset Simulation", tint = PrimaryCyan)
+                            }
+                        }
+                    }
+
+                    // --- PLAYBACK CONTROLS ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { viewModel.isSimulating = !viewModel.isSimulating },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (viewModel.isSimulating) LaserCrimson else PrimaryCyan,
+                                contentColor = SlateDark
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (viewModel.isSimulating) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                if (viewModel.isSimulating) (if (lang == "id") "JEDA SIM" else "PAUSE SIM") else (if (lang == "id") "PUTAR SIMULASI" else "PLAY SIMULATE"),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    // Sim manual progress slider bar
+                    Column {
+                        Text(
+                            if (lang == "id") "Garis Toolpath: ${viewModel.maxSegmentsToDraw} / ${viewModel.parsedSegments.size}" else "G-Code Toolpaths Lines: ${viewModel.maxSegmentsToDraw} / ${viewModel.parsedSegments.size}",
+                            color = TextLight,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Slider(
+                            value = viewModel.maxSegmentsToDraw.toFloat(),
+                            onValueChange = {
+                                viewModel.isSimulating = false
+                                viewModel.maxSegmentsToDraw = it.toInt()
+                            },
+                            valueRange = 0f..(viewModel.parsedSegments.size.toFloat().coerceAtLeast(1f)),
+                            colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
+                        )
+                    }
+                }
+            }
+
+            FlexItem(expandedWeight = 1.0f) {
+                // --- TERMINAL RAW G-CODE DISPLAY CARD ---
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            tEditorHeadline,
+                            color = PrimaryCyan,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                        val curSec = viewModel.parsedSegments.getOrNull(
-                            (viewModel.maxSegmentsToDraw - 1).coerceAtLeast(0)
-                        )
-                        Text(
-                            "X: ${String.format("%.1f", curSec?.end?.x ?: 0f)} mm",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            "Y: ${String.format("%.1f", curSec?.end?.y ?: 0f)} mm",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            "S-Power: ${curSec?.sPower ?: 0}",
-                            color = when (viewModel.toolType) {
-                                "LASER" -> Color(0xFFD0BCFF)
-                                "SPINDLE" -> SpindleGold
-                                else -> RouterGreen
+                        
+                        // GCode Output Text Field (editable terminal stream modeled as a dark professional console)
+                        OutlinedTextField(
+                            value = viewModel.currentGCode,
+                            onValueChange = {
+                                viewModel.currentGCode = it
+                                // Recalculate outline paths instantly
+                                viewModel.parsedSegments = GCodeParser.parseGCode(it)
+                                viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size
                             },
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color.White
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF211F26),
+                                unfocusedContainerColor = Color(0xFF211F26),
+                                focusedBorderColor = PrimaryCyan,
+                                unfocusedBorderColor = Color(0xFF49454F),
+                                cursorColor = PrimaryCyan
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .testTag("gcode_terminal_editor"),
+                            maxLines = 100
                         )
-                        Text(
-                            "Lines: ${viewModel.parsedSegments.size}",
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
 
-                // Interactive Zoom/Reset overlay button
-                IconButton(
-                    onClick = { viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size; viewModel.isSimulating = false },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .background(SlateDark, RoundedCornerShape(4.dp))
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Reset Simulation", tint = PrimaryCyan)
-                }
-            }
-        }
-
-        // --- PLAYBACK CONTROLS ---
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                onClick = { viewModel.isSimulating = !viewModel.isSimulating },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (viewModel.isSimulating) LaserCrimson else PrimaryCyan,
-                    contentColor = SlateDark
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(
-                    imageVector = if (viewModel.isSimulating) Icons.Default.Refresh else Icons.Default.PlayArrow,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    if (viewModel.isSimulating) (if (lang == "id") "JEDA SIM" else "PAUSE SIM") else (if (lang == "id") "PUTAR SIMULASI" else "PLAY SIMULATE"),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-            }
-        }
-
-        // Sim manual progress slider bar
-        Column {
-            Text(
-                if (lang == "id") "Garis Toolpath: ${viewModel.maxSegmentsToDraw} / ${viewModel.parsedSegments.size}" else "G-Code Toolpaths Lines: ${viewModel.maxSegmentsToDraw} / ${viewModel.parsedSegments.size}",
-                color = TextLight,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Slider(
-                value = viewModel.maxSegmentsToDraw.toFloat(),
-                onValueChange = {
-                    viewModel.isSimulating = false
-                    viewModel.maxSegmentsToDraw = it.toInt()
-                },
-                valueRange = 0f..(viewModel.parsedSegments.size.toFloat().coerceAtLeast(1f)),
-                colors = SliderDefaults.colors(thumbColor = PrimaryCyan)
-            )
-        }
-
-        Divider(color = TravelGray, thickness = 0.5.dp)
-
-        // --- TERMINAL RAW G-CODE DISPLAY CARD ---
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardDark),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    tEditorHeadline,
-                    color = PrimaryCyan,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-                
-                // GCode Output Text Field (editable terminal stream modeled as a dark professional console)
-                OutlinedTextField(
-                    value = viewModel.currentGCode,
-                    onValueChange = {
-                        viewModel.currentGCode = it
-                        // Recalculate outline paths instantly
-                        viewModel.parsedSegments = GCodeParser.parseGCode(it)
-                        viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size
-                    },
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = Color.White
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF211F26),
-                        unfocusedContainerColor = Color(0xFF211F26),
-                        focusedBorderColor = PrimaryCyan,
-                        unfocusedBorderColor = Color(0xFF49454F),
-                        cursorColor = PrimaryCyan
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .testTag("gcode_terminal_editor"),
-                    maxLines = 100
-                )
-
-                // Row 1: Copy, Export file (.nc) and Share
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Copy to clipboard
-                    Button(
-                        onClick = {
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = android.content.ClipData.newPlainText("CNC GCODE", viewModel.currentGCode)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, if (lang == "id") "G-code disalin ke papan klip!" else "G-code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = TextLight),
-                        border = BorderStroke(0.5.dp, PrimaryCyan),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f).height(38.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(tCopy, fontSize = 10.sp, maxLines = 1)
-                    }
-
-                    // Native Download / Export file (.nc)
-                    Button(
-                        onClick = {
-                            try {
-                                saveGCodeLauncher.launch("CNC_G_Code_File.nc")
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error launching saver: ${e.message}", Toast.LENGTH_SHORT).show()
+                        // Row 1: Copy, Export file (.nc) and Share
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Copy to clipboard
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("CNC GCODE", viewModel.currentGCode)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, if (lang == "id") "G-code disalin ke papan klip!" else "G-code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = TextLight),
+                                border = BorderStroke(0.5.dp, PrimaryCyan),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(tCopy, fontSize = 10.sp, maxLines = 1)
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = RouterGreen),
-                        border = BorderStroke(0.5.dp, RouterGreen),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1.2f).height(38.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(if (lang == "id") "Unduh (.nc)" else "Export (.nc)", fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold)
-                    }
 
-                    // Share raw text
-                    Button(
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "CNC G-Code File")
-                                putExtra(Intent.EXTRA_TEXT, viewModel.currentGCode)
+                            // Native Download / Export file (.nc)
+                            Button(
+                                onClick = {
+                                    try {
+                                        saveGCodeLauncher.launch("CNC_G_Code_File.nc")
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error launching saver: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = RouterGreen),
+                                border = BorderStroke(0.5.dp, RouterGreen),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1.2f).height(38.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(if (lang == "id") "Unduh (.nc)" else "Export (.nc)", fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold)
                             }
-                            context.startActivity(Intent.createChooser(intent, tShare))
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = TextLight),
-                        border = BorderStroke(0.5.dp, PrimaryCyan),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f).height(38.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(tShare, fontSize = 10.sp, maxLines = 1)
+
+                            // Share raw text
+                            Button(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "CNC G-Code File")
+                                        putExtra(Intent.EXTRA_TEXT, viewModel.currentGCode)
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, tShare))
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CardDark, contentColor = TextLight),
+                                border = BorderStroke(0.5.dp, PrimaryCyan),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(tShare, fontSize = 10.sp, maxLines = 1)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Row 2: Database Save
+                        Button(
+                            onClick = { showSaveDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                        ) {
+                            Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(tSaveProj, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Row 2: Database Save
-                Button(
-                    onClick = { showSaveDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().height(42.dp)
-                ) {
-                    Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(tSaveProj, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -5195,205 +5276,209 @@ fun DXFConverterPane(viewModel: GCodeViewModel) {
                     modifier = Modifier.padding(12.dp)
                 )
             }
-        }
-
-        // Scaling settings card
+        }        // Scaling & Presets settings responsive blocks
         if (viewModel.dxfRawPaths.isNotEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        if (lang == "id") "DONGKRAK SKALA DAN SISTEM UNIT" else "SCALE CALIBRATION & MEASURE",
-                        color = PrimaryCyan,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    // Unit systems Segment
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            if (lang == "id") "Sistem Unit File DXF Asal:" else "Source file unit system:",
-                            color = UnselectedGrey,
-                            fontSize = 10.sp
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Button(
-                                onClick = { 
-                                    viewModel.dxfUnitIsInch = false
-                                    viewModel.applyDxfPathsAndCompile()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (!viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
-                                    contentColor = if (!viewModel.dxfUnitIsInch) SlateDark else TextLight
-                                ),
-                                border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f).height(34.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("Millimeters (mm)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            Button(
-                                onClick = { 
-                                    viewModel.dxfUnitIsInch = true
-                                    viewModel.applyDxfPathsAndCompile()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
-                                    contentColor = if (viewModel.dxfUnitIsInch) SlateDark else TextLight
-                                ),
-                                border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f).height(34.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("Inches (in)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Scaler Slider
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+            ResponsiveFlexLayout(spacing = 16.dp) {
+                FlexItem(expandedWeight = 1f) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
-                                if (lang == "id") "Rasio Skala Desain:" else "Design scale ratio:",
-                                color = UnselectedGrey,
-                                fontSize = 10.sp
-                            )
-                            Text(
-                                String.format("%.2f x", viewModel.dxfScaleFactor),
+                                if (lang == "id") "DONGKRAK SKALA DAN SISTEM UNIT" else "SCALE CALIBRATION & MEASURE",
                                 color = PrimaryCyan,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
-                        }
 
-                        Slider(
-                            value = viewModel.dxfScaleFactor,
-                            onValueChange = { 
-                                viewModel.dxfScaleFactor = it 
-                            },
-                            onValueChangeFinished = {
-                                viewModel.applyDxfPathsAndCompile()
-                            },
-                            valueRange = 0.1f..10.0f,
-                            colors = SliderDefaults.colors(thumbColor = PrimaryCyan, activeTrackColor = PrimaryCyan)
-                        )
+                            // Unit systems Segment
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    if (lang == "id") "Sistem Unit File DXF Asal:" else "Source file unit system:",
+                                    color = UnselectedGrey,
+                                    fontSize = 10.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Button(
+                                        onClick = { 
+                                            viewModel.dxfUnitIsInch = false
+                                            viewModel.applyDxfPathsAndCompile()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (!viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
+                                            contentColor = if (!viewModel.dxfUnitIsInch) SlateDark else TextLight
+                                        ),
+                                        border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).height(34.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("Millimeters (mm)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { 
+                                            viewModel.dxfUnitIsInch = true
+                                            viewModel.applyDxfPathsAndCompile()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
+                                            contentColor = if (viewModel.dxfUnitIsInch) SlateDark else TextLight
+                                        ),
+                                        border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).height(34.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("Inches (in)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // Scaler Slider
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        if (lang == "id") "Rasio Skala Desain:" else "Design scale ratio:",
+                                        color = UnselectedGrey,
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        String.format("%.2f x", viewModel.dxfScaleFactor),
+                                        color = PrimaryCyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+
+                                Slider(
+                                    value = viewModel.dxfScaleFactor,
+                                    onValueChange = { 
+                                        viewModel.dxfScaleFactor = it 
+                                    },
+                                    onValueChangeFinished = {
+                                        viewModel.applyDxfPathsAndCompile()
+                                    },
+                                    valueRange = 0.1f..10.0f,
+                                    colors = SliderDefaults.colors(thumbColor = PrimaryCyan, activeTrackColor = PrimaryCyan)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                FlexItem(expandedWeight = 1.2f) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                if (lang == "id") "PREFERENSI MESIN CNC PILIHAN" else "CNC COMPILATION PRESETS",
+                                color = PrimaryCyan,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+
+                            // Tool Choice Picker
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val toolLaser = viewModel.toolType == "LASER"
+                                Button(
+                                    onClick = { 
+                                        viewModel.toolType = "LASER"
+                                        viewModel.applyDxfPathsAndCompile()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (toolLaser) PrimaryCyan else SlateDark,
+                                        contentColor = if (toolLaser) SlateDark else TextLight
+                                    ),
+                                    border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (lang == "id") "LASER POTONG" else "LASER CUTTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = { 
+                                        viewModel.toolType = "ROUTER"
+                                        viewModel.applyDxfPathsAndCompile()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (!toolLaser) PrimaryCyan else SlateDark,
+                                        contentColor = if (!toolLaser) SlateDark else TextLight
+                                    ),
+                                    border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (lang == "id") "SPINDLE CNC" else "SPINDLE ROUTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            // Status details Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(if (lang == "id") "Kecepatan Potong:" else "Feedrate:", color = UnselectedGrey, fontSize = 9.sp)
+                                    Text("${viewModel.feedrateCut.toInt()} mm/min", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text(if (lang == "id") "Kedalaman Potong Z:" else "Target Depth Z:", color = UnselectedGrey, fontSize = 9.sp)
+                                    Text("${viewModel.targetCutZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text(if (lang == "id") "Step Per Pass:" else "Depth Step:", color = UnselectedGrey, fontSize = 9.sp)
+                                    Text("${viewModel.zStepPerPass} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text(if (lang == "id") "Ketinggian Aman:" else "Safe Height Z:", color = UnselectedGrey, fontSize = 9.sp)
+                                    Text("${viewModel.safeZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+
+                            Text(
+                                if (lang == "id") 
+                                    "*Edit preferensi dan kecepatan ini sewaktu-waktu secara mendalam melalui panel SETTINGS."
+                                    else "Tune feedrates, laser commands, and cutter shapes over on the SETTINGS tab.",
+                                color = UnselectedGrey,
+                                fontSize = 9.sp,
+                                style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                            )
+                        }
                     }
                 }
             }
-
-            // G-code Compiler settings Quick Summary Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        if (lang == "id") "PREFERENSI MESIN CNC PILIHAN" else "CNC COMPILATION PRESETS",
-                        color = PrimaryCyan,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    // Tool Choice Picker
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val toolLaser = viewModel.toolType == "LASER"
-                        Button(
-                            onClick = { 
-                                viewModel.toolType = "LASER"
-                                viewModel.applyDxfPathsAndCompile()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (toolLaser) PrimaryCyan else SlateDark,
-                                contentColor = if (toolLaser) SlateDark else TextLight
-                            ),
-                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(if (lang == "id") "LASER POTONG" else "LASER CUTTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            onClick = { 
-                                viewModel.toolType = "ROUTER"
-                                viewModel.applyDxfPathsAndCompile()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!toolLaser) PrimaryCyan else SlateDark,
-                                contentColor = if (!toolLaser) SlateDark else TextLight
-                            ),
-                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(34.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(if (lang == "id") "SPINDLE CNC" else "SPINDLE ROUTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // Status details Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(if (lang == "id") "Kecepatan Potong:" else "Feedrate:", color = UnselectedGrey, fontSize = 9.sp)
-                            Text("${viewModel.feedrateCut.toInt()} mm/min", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text(if (lang == "id") "Kedalaman Potong Z:" else "Target Depth Z:", color = UnselectedGrey, fontSize = 9.sp)
-                            Text("${viewModel.targetCutZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text(if (lang == "id") "Step Per Pass:" else "Depth Step:", color = UnselectedGrey, fontSize = 9.sp)
-                            Text("${viewModel.zStepPerPass} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text(if (lang == "id") "Ketinggian Aman:" else "Safe Height Z:", color = UnselectedGrey, fontSize = 9.sp)
-                            Text("${viewModel.safeZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                    }
-
-                    Text(
-                        if (lang == "id") 
-                            "*Edit preferensi dan kecepatan ini sewaktu-waktu secara mendalam melalui panel SETTINGS."
-                            else "Tune feedrates, laser commands, and cutter shapes over on the SETTINGS tab.",
-                        color = UnselectedGrey,
-                        fontSize = 9.sp,
-                        style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                    )
-                }
-            }
+        }
 
             // Successfully compilation output feedback
             if (viewModel.currentGCode.isNotEmpty()) {
@@ -5486,7 +5571,6 @@ fun DXFConverterPane(viewModel: GCodeViewModel) {
             }
         }
     }
-}
 
 private fun getFileNameFromUri(context: android.content.Context, uri: android.net.Uri): String {
     var result: String? = null
