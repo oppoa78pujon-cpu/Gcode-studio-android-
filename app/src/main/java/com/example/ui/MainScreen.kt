@@ -137,21 +137,19 @@ fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
     val tSettingsTab = if (lang == "id") "Setelan" else "Settings"
 
     Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .background(SlateDark),
+        modifier = modifier.fillMaxSize(),
+        containerColor = SlateDark,
         topBar = {
             // Tabs Navigation Row (Outlined Material 3 style row bottom-border with high contrast)
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardDark),
                 shape = RoundedCornerShape(0.dp),
                 border = BorderStroke(0.5.dp, BorderCyan),
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .fillMaxWidth()
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
+                        .statusBarsPadding()
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 8.dp, vertical = 6.dp),
