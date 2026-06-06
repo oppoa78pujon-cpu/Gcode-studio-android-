@@ -1,41 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    
-    <!-- Outer concentric circular cut path -->
-    <path
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="2.0"
-        android:fillColor="#00000000"
-        android:pathData="M 54,26 A 28,28 0 1,1 53.9,26 Z" />
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="66dp"
+        android:height="66dp"
+        android:drawable="@drawable/img_app_logo"
+        android:gravity="center" />
+</layer-list>
 
-    <!-- Secondary offset concentric ring -->
-    <path
-        android:strokeColor="#2979FF"
-        android:strokeWidth="1.0"
-        android:fillColor="#00000000"
-        android:pathData="M 54,34 A 20,20 0 1,1 53.9,34 Z" />
-
-    <!-- Innermost laser focus/focal node -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M54,54m-4,0a4,4 0 1,1 8,0a4,4 0 1,1 -8,0" />
-
-    <!-- High-tech cross hairs / CNC alignment ticks -->
-    <path
-        android:strokeColor="#ECEFF1"
-        android:strokeWidth="2.0"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M54,16 L54,26 M54,92 L54,82 M16,54 L26,54 M92,54 L82,54" />
-
-    <path
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M54,40 L54,48 M54,68 L54,60 M40,54 L48,54 M68,54 L60,54" />
-</vector>

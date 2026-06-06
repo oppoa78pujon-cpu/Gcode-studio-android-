@@ -41,6 +41,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -2146,6 +2152,7 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
     val lang = viewModel.language
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val gcodeVisualTransformation = remember { GCodeVisualTransformation() }
     
     // Launcher to save compile/converted G-code physical file onto the SD-card or Downloads directory directly.
     val saveGCodeLauncher = rememberLauncherForActivityResult(
@@ -2661,6 +2668,7 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
                                 viewModel.parsedSegments = GCodeParser.parseGCode(it)
                                 viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size
                             },
+                            visualTransformation = gcodeVisualTransformation,
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
@@ -4757,6 +4765,7 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
     var subTab by remember { mutableStateOf("DASHBOARD") } // "DASHBOARD" or "WEB_UI"
     var webViewInstance by remember { mutableStateOf<android.webkit.WebView?>(null) }
     var consoleCommandInput by remember { mutableStateOf("") }
+    val gcodeVisualTransformation = remember { GCodeVisualTransformation() }
 
     val tTitle = if (lang == "id") "FluidNC Wi-Fi Offline Control" else "FluidNC Wi-Fi Offline Center"
     val tSubtitle = if (lang == "id") 
@@ -5682,6 +5691,7 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                             OutlinedTextField(
                                 value = consoleCommandInput,
                                 onValueChange = { consoleCommandInput = it },
+                                visualTransformation = gcodeVisualTransformation,
                                 label = { Text(if (lang == "id") "Ketik Perintah / G-Code" else "Type Command / G-Code", fontSize = 10.sp) },
                                 modifier = Modifier
                                     .weight(1f)
@@ -6404,6 +6414,170 @@ fun BoxScope.CornerOriginNode(
                     color = PrimaryCyan
                 )
             }
+        }
+    }
+}
+
+class GCodeVisualTransformation : VisualTransformation {
+    private var lastText: String? = null
+    private var lastResult: TransformedText? = null
+
+    override fun filter(text: AnnotatedString): TransformedText {
+        val plainText = text.text
+        if (plainText == lastText && lastResult != null) {
+            return lastResult!!
+        }
+        val annotated = highlightGCode(plainText)
+        val result = TransformedText(annotated, OffsetMapping.Identity)
+        lastText = plainText
+        lastResult = result
+        return result
+    }
+}
+
+fun highlightGCode(text: String): AnnotatedString {
+    if (text.length > 8000) {
+        return AnnotatedString(text)
+    }
+    return buildAnnotatedString {
+        append(text)
+        val textLength = text.length
+        if (textLength == 0) return@buildAnnotatedString
+        
+        // Split lines while keeping track of actual index positions
+        val lines = text.split('\n')
+        var currentOffset = 0
+        
+        for (line in lines) {
+            val lineLen = line.length
+            
+            // Check for comments (starts with semicolon or parentheses)
+            var commentIndex = line.indexOf(';')
+            if (commentIndex == -1) {
+                commentIndex = line.indexOf('(')
+            }
+            
+            val codePart = if (commentIndex != -1) line.substring(0, commentIndex) else line
+            
+            // Highlight the code part
+            var i = 0
+            while (i < codePart.length) {
+                val c = codePart[i]
+                
+                // Highlight system parameters or commands which start with '$'
+                if (c == '$') {
+                    val s = i
+                    i++
+                    while (i < codePart.length && (codePart[i].isLetterOrDigit() || codePart[i] == '=' || codePart[i] == '.' || codePart[i] == '$')) {
+                        i++
+                    }
+                    val start = (currentOffset + s).coerceIn(0, textLength)
+                    val end = (currentOffset + i).coerceIn(0, textLength)
+                    if (start < end) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFFEA80FC), fontWeight = FontWeight.Bold), // Vibrant Purple
+                            start = start,
+                            end = end
+                        )
+                    }
+                    continue
+                }
+                
+                // G / M Commands (G0, G1, M3, M5, etc.)
+                if (c.equals('G', ignoreCase = true) || c.equals('M', ignoreCase = true)) {
+                    val s = i
+                    i++
+                    while (i < codePart.length && (codePart[i].isDigit() || codePart[i] == '.')) {
+                        i++
+                    }
+                    val start = (currentOffset + s).coerceIn(0, textLength)
+                    val end = (currentOffset + i).coerceIn(0, textLength)
+                    if (start < end) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFF00E676), fontWeight = FontWeight.Bold), // Vibrant Lime Green
+                            start = start,
+                            end = end
+                        )
+                    }
+                    continue
+                }
+                
+                // Sumbu / Axes (X, Y, Z, I, J, K)
+                if (c.equals('X', ignoreCase = true) || c.equals('Y', ignoreCase = true) || c.equals('Z', ignoreCase = true) ||
+                    c.equals('I', ignoreCase = true) || c.equals('J', ignoreCase = true) || c.equals('K', ignoreCase = true)) {
+                    val startLetter = (currentOffset + i).coerceIn(0, textLength)
+                    val endLetter = (currentOffset + i + 1).coerceIn(0, textLength)
+                    if (startLetter < endLetter) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFF29B6F6), fontWeight = FontWeight.Bold), // Sky Blue
+                            start = startLetter,
+                            end = endLetter
+                        )
+                    }
+                    val startNum = i + 1
+                    i++
+                    while (i < codePart.length && (codePart[i].isDigit() || codePart[i] == '-' || codePart[i] == '+' || codePart[i] == '.')) {
+                        i++
+                    }
+                    val startN = (currentOffset + startNum).coerceIn(0, textLength)
+                    val endN = (currentOffset + i).coerceIn(0, textLength)
+                    if (startN < endN) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFFECEFF1)), // Ice White
+                            start = startN,
+                            end = endN
+                        )
+                    }
+                    continue
+                }
+                
+                // Feedrate (F), Speed (S), Parameters (P, H, D)
+                if (c.equals('F', ignoreCase = true) || c.equals('S', ignoreCase = true) || 
+                    c.equals('P', ignoreCase = true) || c.equals('H', ignoreCase = true) || c.equals('D', ignoreCase = true)) {
+                    val startLetter = (currentOffset + i).coerceIn(0, textLength)
+                    val endLetter = (currentOffset + i + 1).coerceIn(0, textLength)
+                    if (startLetter < endLetter) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFFFFB74D), fontWeight = FontWeight.Bold), // Amber Orange
+                            start = startLetter,
+                            end = endLetter
+                        )
+                    }
+                    val startNum = i + 1
+                    i++
+                    while (i < codePart.length && (codePart[i].isDigit() || codePart[i] == '-' || codePart[i] == '+' || codePart[i] == '.')) {
+                        i++
+                    }
+                    val startN = (currentOffset + startNum).coerceIn(0, textLength)
+                    val endN = (currentOffset + i).coerceIn(0, textLength)
+                    if (startN < endN) {
+                        addStyle(
+                            style = SpanStyle(color = Color(0xFFECEFF1)), // Ice White
+                            start = startN,
+                            end = endN
+                        )
+                    }
+                    continue
+                }
+                
+                // Default character
+                i++
+            }
+            
+            // Highlight the comment part (Muted Slate Blue-Gray)
+            if (commentIndex != -1) {
+                val s = (currentOffset + commentIndex).coerceIn(0, textLength)
+                val e = (currentOffset + lineLen).coerceIn(0, textLength)
+                if (s < e) {
+                    addStyle(
+                        style = SpanStyle(color = Color(0xFF90A4AE), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), // Slate Muted Gray
+                        start = s,
+                        end = e
+                    )
+                }
+            }
+            
+            currentOffset += lineLen + 1 // +1 for the newline character
         }
     }
 }
