@@ -1008,6 +1008,54 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     var probeThickness by mutableStateOf(1.5f)
     var isProbing by mutableStateOf(false)
 
+    private fun executeNetworkCommand(cleanIP: String, gcode: String): String {
+        val encoded = java.net.URLEncoder.encode(gcode, "UTF-8")
+        
+        // 1. Try `/command?commandText=` (ESP3D WebUI and FluidNC standard command handler)
+        try {
+            val url = java.net.URL("http://$cleanIP/command?commandText=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 3000
+            conn.readTimeout = 3000
+            conn.requestMethod = "GET"
+            if (conn.responseCode == 200) {
+                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 2. Try `/gcode?gcode=` (secondary fallback)
+        try {
+            val url = java.net.URL("http://$cleanIP/gcode?gcode=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
+            conn.requestMethod = "GET"
+            if (conn.responseCode == 200) {
+                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 3. Try `/command?plain=` (legacy fallback)
+        try {
+            val url = java.net.URL("http://$cleanIP/command?plain=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 1500
+            conn.readTimeout = 1500
+            conn.requestMethod = "GET"
+            if (conn.responseCode == 200) {
+                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        throw Exception("Koneksi gagal atau rute tidak didukung di $cleanIP")
+    }
+
     fun startZAxisProbe() {
         if (isProbing) return
         isProbing = true
@@ -1017,14 +1065,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                 // 1. Send G38.2 Z-Probe Command
                 appendConsoleLog("Mengirim G38.2: Mencari permukaan touchplate dng kecepatan ${probeFeedrate.toInt()}mm/min...")
                 val probeCmd = "G38.2 Z${String.format(java.util.Locale.US, "%.3f", probeMaxDistance)} F${probeFeedrate.toInt()}"
-                
-                val encoded1 = java.net.URLEncoder.encode(probeCmd, "UTF-8")
-                val url1 = java.net.URL("http://$cleanIP/gcode?gcode=$encoded1")
-                val conn1 = url1.openConnection() as java.net.HttpURLConnection
-                conn1.connectTimeout = 4000
-                conn1.requestMethod = "GET"
-                val code1 = conn1.responseCode
-                val res1 = if (code1 == 200) conn1.inputStream.bufferedReader().use { it.readText() }.trim() else "Error HTTP $code1"
+                val res1 = executeNetworkCommand(cleanIP, probeCmd)
                 
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     appendConsoleLog("G38.2 Respon: $res1")
@@ -1035,13 +1076,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                 // 2. Set coordinate zero offset G92 Z[thickness]
                 appendConsoleLog("Mengatur koordinat benda kerja Z ke tebal touchplate: ${probeThickness}mm...")
                 val zeroCmd = "G92 Z${String.format(java.util.Locale.US, "%.3f", probeThickness)}"
-                val encoded2 = java.net.URLEncoder.encode(zeroCmd, "UTF-8")
-                val url2 = java.net.URL("http://$cleanIP/gcode?gcode=$encoded2")
-                val conn2 = url2.openConnection() as java.net.HttpURLConnection
-                conn2.connectTimeout = 4000
-                conn2.requestMethod = "GET"
-                val code2 = conn2.responseCode
-                val res2 = if (code2 == 200) conn2.inputStream.bufferedReader().use { it.readText() }.trim() else "Error HTTP $code2"
+                val res2 = executeNetworkCommand(cleanIP, zeroCmd)
                 
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     appendConsoleLog("G92 Respon: $res2")
@@ -1052,13 +1087,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                 // 3. Lift tool up to safety height
                 appendConsoleLog("Menaikkan pahat Z aman ke +5.0mm...")
                 val liftCmd = "G0 Z5.0"
-                val encoded3 = java.net.URLEncoder.encode(liftCmd, "UTF-8")
-                val url3 = java.net.URL("http://$cleanIP/gcode?gcode=$encoded3")
-                val conn3 = url3.openConnection() as java.net.HttpURLConnection
-                conn3.connectTimeout = 4000
-                conn3.requestMethod = "GET"
-                val code3 = conn3.responseCode
-                val res3 = if (code3 == 200) conn3.inputStream.bufferedReader().use { it.readText() }.trim() else "Error HTTP $code3"
+                val res3 = executeNetworkCommand(cleanIP, liftCmd)
                 
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     appendConsoleLog("G0 Lift Respon: $res3")
@@ -1079,35 +1108,50 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
         fluidNCConnectionStatus = "TESTING"
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val url = java.net.URL("http://$cleanIP/status")
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.requestMethod = "GET"
+                var connectedStatus = false
+                var statusText = ""
                 
-                val code = conn.responseCode
-                if (code == 200) {
-                    val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                // Try to get actual machine status query
+                try {
+                    val encoded = java.net.URLEncoder.encode("?", "UTF-8")
+                    val url = java.net.URL("http://$cleanIP/command?commandText=$encoded")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 2500
+                    conn.readTimeout = 2500
+                    conn.requestMethod = "GET"
+                    if (conn.responseCode == 200) {
+                        statusText = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                        connectedStatus = true
+                    }
+                } catch (e: Exception) {
+                    // fallback
+                }
+
+                if (!connectedStatus) {
+                    // Try to fetch homepage/Web Interface index page
+                    try {
+                        val url = java.net.URL("http://$cleanIP/")
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 2500
+                        conn.requestMethod = "GET"
+                        if (conn.responseCode == 200) {
+                            connectedStatus = true
+                            statusText = "FluidNC Web Server OK"
+                        }
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+
+                if (connectedStatus) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         fluidNCConnectionStatus = "CONNECTED"
-                        appendConsoleLog("Terhubung ke FluidNC! Status: $responseText")
+                        appendConsoleLog("Terhubung ke FluidNC! Status: $statusText")
                     }
                 } else {
-                    val alternativeUrl = java.net.URL("http://$cleanIP/")
-                    val altConn = alternativeUrl.openConnection() as java.net.HttpURLConnection
-                    altConn.connectTimeout = 2000
-                    altConn.requestMethod = "GET"
-                    val altCode = altConn.responseCode
-                    if (altCode == 200) {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            fluidNCConnectionStatus = "CONNECTED"
-                            appendConsoleLog("Terhubung ke FluidNC Web Server!")
-                        }
-                    } else {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            fluidNCConnectionStatus = "FAILED"
-                            appendConsoleLog("Gagal menyambung ke $cleanIP (Kode: $code)")
-                        }
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        fluidNCConnectionStatus = "FAILED"
+                        appendConsoleLog("Gagal menyambung ke $cleanIP")
                     }
                 }
             } catch (e: Exception) {
@@ -1128,20 +1172,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     fun sendFluidCommand(gcode: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val encodedGCode = java.net.URLEncoder.encode(gcode, "UTF-8")
-                val url = java.net.URL("http://$cleanIP/gcode?gcode=$encodedGCode")
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 2500
-                conn.readTimeout = 2500
-                conn.requestMethod = "GET"
-                
-                val code = conn.responseCode
-                val responseText = if (code == 200) {
-                    conn.inputStream.bufferedReader().use { it.readText() }.trim()
-                } else {
-                    "HTTP Error $code"
-                }
-                
+                val responseText = executeNetworkCommand(cleanIP, gcode)
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     appendConsoleLog("Kirim: \"$gcode\" -> Respon: $responseText")
                 }
@@ -1179,16 +1210,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                 if (!isStreamingToFluidNC) break
                 
                 try {
-                    val encoded = java.net.URLEncoder.encode(line, "UTF-8")
-                    val url = java.net.URL("http://$cleanIP/gcode?gcode=$encoded")
-                    val conn = url.openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 3000
-                    conn.readTimeout = 3000
-                    conn.requestMethod = "GET"
-                    val code = conn.responseCode
-                    val res = if (code == 200) {
-                        conn.inputStream.bufferedReader().use { it.readText() }.trim()
-                    } else "Gagal"
+                    val res = executeNetworkCommand(cleanIP, line)
                     
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         fluidNCStreamCurrentIndex = index + 1

@@ -2907,6 +2907,14 @@ fun SettingsPane(viewModel: GCodeViewModel) {
     val tCutZ = if (lang == "id") "Kedalaman Potong Total (Cut Z)" else "Total Cut Depth (Absolute Z)"
     val tZStep = if (lang == "id") "Kedalaman per Pass (Multi-pass)" else "Multipass Step Increment"
 
+    var settingsCategory by remember { mutableStateOf("GENERAL") }
+    val categoriesList = listOf(
+        Pair("GENERAL", if (lang == "id") "⚙️ Umum" else "⚙️ General"),
+        Pair("WORKSPACE", if (lang == "id") "📏 Area Kerja" else "📏 Workspace"),
+        Pair("TOOLHEAD", if (lang == "id") "🔌 Perkakas" else "🔌 Toolhead"),
+        Pair("DATABASES", if (lang == "id") "📂 Resep & Presisi" else "📂 Specs & Database")
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2923,6 +2931,39 @@ fun SettingsPane(viewModel: GCodeViewModel) {
         )
         Text(tSub, color = TextLight, fontSize = 11.sp)
 
+        // Category navigation row (styled pills)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categoriesList.forEach { (catID, catLabel) ->
+                val isSelected = settingsCategory == catID
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) PrimaryCyan.copy(alpha = 0.15f) else CardDark
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (isSelected) PrimaryCyan else BorderCyan.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.clickable { settingsCategory = catID }
+                ) {
+                    Text(
+                        text = catLabel,
+                        color = if (isSelected) PrimaryCyan else TextLight,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        if (settingsCategory == "GENERAL") {
         // --- APP THEME & VISUAL CUSTOMIZATION CARD ---
         Card(
             colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -3030,7 +3071,9 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End GENERAL Theme Card
 
+        if (settingsCategory == "DATABASES") {
         // Toolpath Optimization Control Card
         Card(colors = CardDefaults.cardColors(containerColor = CardDark)) {
             Row(
@@ -3390,7 +3433,9 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End DATABASES Materials Card
 
+        if (settingsCategory == "GENERAL") {
         // 1. Language selector
         Card(colors = CardDefaults.cardColors(containerColor = CardDark)) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -3420,48 +3465,9 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End GENERAL Language Selector
 
-        // Theme Toggle Card (Dark / Light Theme Selection)
-        Card(colors = CardDefaults.cardColors(containerColor = CardDark)) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (lang == "id") "Tema Tampilan Aplikasi" else "App Display Theme",
-                    color = PrimaryCyan,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-                Text(
-                    if (lang == "id") "Pilih warna layar gelap untuk kenyamanan di lantai bengkel CNC, atau rona terang:"
-                    else "Select a dark slate canvas for safe readability in CNC shops, or classic pristine light:",
-                    color = TextLight,
-                    fontSize = 10.sp
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = { viewModel.isDarkTheme = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (viewModel.isDarkTheme) PrimaryCyan else SlateDark,
-                            contentColor = if (viewModel.isDarkTheme) SlateDark else TextLight
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (lang == "id") "Tema Gelap" else "Dark Theme", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Button(
-                        onClick = { viewModel.isDarkTheme = false },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (!viewModel.isDarkTheme) PrimaryCyan else SlateDark,
-                            contentColor = if (!viewModel.isDarkTheme) SlateDark else TextLight
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (lang == "id") "Tema Terang" else "Light Theme", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
+        if (settingsCategory == "WORKSPACE") {
         // 2. Machine Workspace limits
         Card(colors = CardDefaults.cardColors(containerColor = CardDark)) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3653,7 +3659,9 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End WORKSPACE
 
+        if (settingsCategory == "TOOLHEAD") {
         // 3. Tool Select Mode: Laser vs Spindle vs Router
         Card(colors = CardDefaults.cardColors(containerColor = CardDark)) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4334,7 +4342,9 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End TOOLHEAD
 
+        if (settingsCategory == "DATABASES") {
         // 5. Precision & Multi-Pass Carving Strategy Card (Anti-drift, High Precision)
         Card(
             colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -4659,6 +4669,7 @@ fun SettingsPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+        } // End DATABASES
     }
 }
 
