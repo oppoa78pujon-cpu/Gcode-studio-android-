@@ -1009,44 +1009,63 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     var isProbing by mutableStateOf(false)
 
     private fun executeNetworkCommand(cleanIP: String, gcode: String): String {
-        val encoded = java.net.URLEncoder.encode(gcode, "UTF-8")
+        val encoded = java.net.URLEncoder.encode(gcode, "UTF-8").replace("+", "%20")
         
-        // 1. Try `/command?commandText=` (ESP3D WebUI and FluidNC standard command handler)
+        // 1. Try `/command?commandText=` (GET) - ESP3D / FluidNC Standard
         try {
             val url = java.net.URL("http://$cleanIP/command?commandText=$encoded")
             val conn = url.openConnection() as java.net.HttpURLConnection
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.requestMethod = "GET"
-            if (conn.responseCode == 200) {
+            if (conn.responseCode in 200..299) {
                 return conn.inputStream.bufferedReader().use { it.readText() }.trim()
             }
         } catch (e: Exception) {
             // ignore
         }
 
-        // 2. Try `/gcode?gcode=` (secondary fallback)
+        // 2. Try POST `/command` with raw body
+        try {
+            val url = java.net.URL("http://$cleanIP/command")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "text/plain")
+            conn.outputStream.use { os ->
+                os.write(gcode.toByteArray(Charsets.UTF_8))
+            }
+            if (conn.responseCode in 200..299) {
+                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 3. Try `/command?plain=` (GET)
+        try {
+            val url = java.net.URL("http://$cleanIP/command?plain=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
+            conn.requestMethod = "GET"
+            if (conn.responseCode in 200..299) {
+                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 4. Try `/gcode?gcode=` (GET)
         try {
             val url = java.net.URL("http://$cleanIP/gcode?gcode=$encoded")
             val conn = url.openConnection() as java.net.HttpURLConnection
             conn.connectTimeout = 2000
             conn.readTimeout = 2000
             conn.requestMethod = "GET"
-            if (conn.responseCode == 200) {
-                return conn.inputStream.bufferedReader().use { it.readText() }.trim()
-            }
-        } catch (e: Exception) {
-            // ignore
-        }
-
-        // 3. Try `/command?plain=` (legacy fallback)
-        try {
-            val url = java.net.URL("http://$cleanIP/command?plain=$encoded")
-            val conn = url.openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 1500
-            conn.readTimeout = 1500
-            conn.requestMethod = "GET"
-            if (conn.responseCode == 200) {
+            if (conn.responseCode in 200..299) {
                 return conn.inputStream.bufferedReader().use { it.readText() }.trim()
             }
         } catch (e: Exception) {
@@ -1111,20 +1130,40 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                 var connectedStatus = false
                 var statusText = ""
                 
-                // Try to get actual machine status query
+                // Try to get actual machine status query via GET
                 try {
-                    val encoded = java.net.URLEncoder.encode("?", "UTF-8")
+                    val encoded = java.net.URLEncoder.encode("?", "UTF-8").replace("+", "%20")
                     val url = java.net.URL("http://$cleanIP/command?commandText=$encoded")
                     val conn = url.openConnection() as java.net.HttpURLConnection
                     conn.connectTimeout = 2500
                     conn.readTimeout = 2500
                     conn.requestMethod = "GET"
-                    if (conn.responseCode == 200) {
+                    if (conn.responseCode in 200..299) {
                         statusText = conn.inputStream.bufferedReader().use { it.readText() }.trim()
                         connectedStatus = true
                     }
                 } catch (e: Exception) {
                     // fallback
+                }
+
+                if (!connectedStatus) {
+                    // Try to get actual machine status query via POST
+                    try {
+                        val url = java.net.URL("http://$cleanIP/command")
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 2500
+                        conn.requestMethod = "POST"
+                        conn.doOutput = true
+                        conn.outputStream.use { os ->
+                            os.write("?".toByteArray(Charsets.UTF_8))
+                        }
+                        if (conn.responseCode in 200..299) {
+                            connectedStatus = true
+                            statusText = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                        }
+                    } catch (e: Exception) {
+                        // fallback
+                    }
                 }
 
                 if (!connectedStatus) {
@@ -1134,7 +1173,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                         val conn = url.openConnection() as java.net.HttpURLConnection
                         conn.connectTimeout = 2500
                         conn.requestMethod = "GET"
-                        if (conn.responseCode == 200) {
+                        if (conn.responseCode in 200..299) {
                             connectedStatus = true
                             statusText = "FluidNC Web Server OK"
                         }
