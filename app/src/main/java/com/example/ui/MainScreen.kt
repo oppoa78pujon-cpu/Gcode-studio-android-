@@ -4682,6 +4682,7 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
     val context = android.view.View(LocalContext.current).context
     var subTab by remember { mutableStateOf("DASHBOARD") } // "DASHBOARD" or "WEB_UI"
     var webViewInstance by remember { mutableStateOf<android.webkit.WebView?>(null) }
+    var consoleCommandInput by remember { mutableStateOf("") }
 
     val tTitle = if (lang == "id") "FluidNC Wi-Fi Offline Control" else "FluidNC Wi-Fi Offline Center"
     val tSubtitle = if (lang == "id") 
@@ -5390,6 +5391,54 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                                     fontSize = 9.sp,
                                     lineHeight = 11.sp
                                 )
+                            }
+                        }
+
+                        // Custom Command Box (Kotak Perintah G-Code)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = consoleCommandInput,
+                                onValueChange = { consoleCommandInput = it },
+                                label = { Text(if (lang == "id") "Ketik Perintah / G-Code" else "Type Command / G-Code", fontSize = 10.sp) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(52.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = PrimaryCyan,
+                                    unfocusedBorderColor = BorderCyan.copy(alpha = 0.5f),
+                                    focusedLabelColor = PrimaryCyan,
+                                    unfocusedLabelColor = UnselectedGrey
+                                ),
+                                placeholder = {
+                                    Text(
+                                        text = "Contoh: G0 X10 Y10",
+                                        color = UnselectedGrey.copy(alpha = 0.4f),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                },
+                                singleLine = true
+                            )
+
+                            Button(
+                                onClick = {
+                                    if (consoleCommandInput.trim().isNotEmpty()) {
+                                        viewModel.sendFluidCommand(consoleCommandInput.trim())
+                                        consoleCommandInput = ""
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(44.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp)
+                            ) {
+                                Text(if (lang == "id") "KIRIM" else "SEND", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
