@@ -1203,9 +1203,129 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun getFluidErrorDescription(code: Int): String? {
+        return when (code) {
+            1 -> "[ID: Kata G-code tanpa huruf / EN: G-code words consist of a letter and a value. Letter not found]"
+            2 -> "[ID: Nilai G-code salah/format tidak valid / EN: Missing expected G-code word value or invalid numeric value format]"
+            3 -> "[ID: Perintah '$' tidak dikenal/didukung / EN: Grbl '$' system command was not recognized or supported]"
+            4 -> "[ID: Nilai negatif pada input positif / EN: Negative value received for an expected positive value]"
+            5 -> "[ID: Gagal Homing: Homing tidak diaktifkan / EN: Homing cycle failure. Homing is not enabled via settings]"
+            6 -> "[ID: Waktu pulsa langkah < 3 usec / EN: Minimum step pulse time must be greater than 3usec]"
+            7 -> "[ID: Gagal membaca EEPROM (Auto-restoring) / EN: EEPROM read failed. Auto-restoring to default values]"
+            8 -> "[ID: Perintah '$' butuh status IDLE / EN: Grbl '$' command cannot be used unless Grbl is IDLE]"
+            9 -> "[ID: Perintah G-code terkunci (Alarm/Jog) / EN: G-code commands are locked out during alarm or jog state]"
+            10 -> "[ID: Batas lunak wajib Homing aktif / EN: Soft limits cannot be enabled without homing also enabled]"
+            11 -> "[ID: Karakter baris melebihi batas / EN: Max characters per line exceeded. Command not executed]"
+            12 -> "[ID: Nilai '$' melebihi langkah maksimum / EN: Grbl '$' setting value cause the step rate to exceed maximum]"
+            13 -> "[ID: Pintu pengaman terbuka / EN: Safety door detected as opened and door state initiated]"
+            14 -> "[ID: Baris startup melebihi batas EEPROM / EN: Build info or startup line exceeded EEPROM line length limit]"
+            15 -> "[ID: Batas jog melebihi travel mesin / EN: Jog target exceeds machine travel. Jog command ignored]"
+            16 -> "[ID: Perintah jog salah (Butuh '=') / EN: Jog command has no '=' or contains prohibited G-code]"
+            17 -> "[ID: Mode Laser membutuhkan PWM / EN: Laser mode requires PWM output]"
+            20 -> "[ID: Perintah G-code tidak didukung / EN: Unsupported or invalid g-code command found in block]"
+            21 -> "[ID: Lebih dari satu perintah modal sejenis / EN: More than one g-code command from same modal group in block]"
+            22 -> "[ID: Feed rate belum ditentukan / EN: Feed rate has not yet been set or is undefined]"
+            23 -> "[ID: Perintah G-code aslinya butuh integer / EN: G-code command in block requires an integer value]"
+            24 -> "[ID: Lebih dari satu perintah sumbu / EN: More than one g-code command that requires axis words in block]"
+            25 -> "[ID: Kata G-code berulang dalam blok / EN: Repeated g-code word found in block]"
+            26 -> "[ID: Koordinat sumbu wajib tidak ditemukan / EN: No axis words found in block for g-code command that requires them]"
+            27 -> "[ID: Nomor baris tidak valid / EN: Line number value is invalid]"
+            28 -> "[ID: Perintah G-code kehilangan nilai wajib / EN: G-code command is missing a required value word]"
+            29 -> "[ID: Koordinat kerja G59.x tidak didukung / EN: G59.x work coordinate systems are not supported]"
+            30 -> "[ID: G53 hanya dng gerakan G0 / G1 / EN: G53 only allowed with G0 and G1 motion modes]"
+            31 -> "[ID: Sumbu koordinat tidak terpakai / EN: Axis words found in block when no command uses them]"
+            32 -> "[ID: Busur G2/G3 butuh koordinat bidang / EN: G2 and G3 arcs require at least one in-plane axis word]"
+            33 -> "[ID: Target perintah gerakan tidak valid / EN: Motion command target is invalid]"
+            34 -> "[ID: Nilai radius busur tidak valid / EN: Arc radius value is invalid]"
+            35 -> "[ID: Busur G2/G3 butuh offset bidang / EN: G2 and G3 arcs require at least one in-plane offset word]"
+            36 -> "[ID: Nilai tidak terpakai dalam blok / EN: Unused value words found in block]"
+            37 -> "[ID: Offset G43.1 tidak sesuai sumbu pahat / EN: G43.1 dynamic tool length offset is not assigned to tool axis]"
+            38 -> "[ID: Nomor pahat melebihi batas maksimum / EN: Tool number greater than max supported value]"
+            60 -> "[ID: Kartu SD gagal dimuat / EN: SD failed to mount]"
+            61 -> "[ID: Kartu SD gagal membuka berkas / EN: SD card failed to open file for reading]"
+            62 -> "[ID: Kartu SD gagal membuka folder / EN: SD card failed to open directory]"
+            63 -> "[ID: Folder Kartu SD tidak ditemukan / EN: SD Card directory not found]"
+            64 -> "[ID: Berkas Kartu SD kosong / EN: SD Card file empty]"
+            65 -> "[ID: Berkas tidak ditemukan / EN: File not found]"
+            66 -> "[ID: Gagal membuka berkas / EN: Failed to open file]"
+            67 -> "[ID: Perangkat sedang sibuk / EN: Device is busy]"
+            68 -> "[ID: Gagal menghapus direktori / EN: Failed to delete directory]"
+            69 -> "[ID: Gagal menghapus berkas / EN: Failed to delete file]"
+            70 -> "[ID: Gagal mengubah nama berkas / EN: Failed to rename file]"
+            80 -> "[ID: Nilai pengaturan di luar rentang / EN: Number out of range for setting]"
+            81 -> "[ID: Nilai pengaturan tidak valid / EN: Invalid value for setting]"
+            82 -> "[ID: Gagal membuat berkas / EN: Failed to create file]"
+            83 -> "[ID: Gagal memformat sistem berkas / EN: Failed to format filesystem]"
+            90 -> "[ID: Gagal mengirim pesan / EN: Failed to send message]"
+            100 -> "[ID: Gagal menyimpan pengaturan / EN: Failed to store setting]"
+            101 -> "[ID: Gagal status pengaturan / EN: Failed to get setting status]"
+            110 -> "[ID: Otentikasi gagal / EN: Authentication failed]"
+            111 -> "[ID: Akhir baris dicapai / EN: End of line]"
+            112 -> "[ID: Akhir berkas dicapai / EN: End of file]"
+            113 -> "[ID: Reset Sistem / EN: System Reset]"
+            120 -> "[ID: Antarmuka lain sedang sibuk / EN: Another interface is busy]"
+            130 -> "[ID: Jog Dibatalkan / EN: Jog Cancelled]"
+            150 -> "[ID: Spesifikasi pin tidak valid / EN: Bad Pin Specification]"
+            151 -> "[ID: Konfigurasi runtime salah / EN: Bad Runtime Config Setting]"
+            152 -> "[ID: Konfigurasi tidak valid. Cek boot / EN: Configuration is invalid. Check boot messages for ERR's]"
+            160 -> "[ID: Gagal mengunggah berkas / EN: File Upload Failed]"
+            161 -> "[ID: Gagal mengunduh berkas / EN: File Download Failed]"
+            162 -> "[ID: Pengaturan hanya-baca / EN: Read-only setting]"
+            else -> null
+        }
+    }
+
+    private fun getFluidAlarmDescription(code: Int): String? {
+        return when (code) {
+            1 -> "[ID: Batas fisik terpicu (Hard Limit) / EN: Hard limit has been triggered. Machine position likely lost]"
+            2 -> "[ID: Alarm batas lunak (Exceeds travel) / EN: Soft limit alarm. G-code motion target exceeds machine travel]"
+            3 -> "[ID: Reset saat sedang bergerak / EN: Reset while in motion. Machine position is likely lost]"
+            4 -> "[ID: Gagal probe (Kondisi awal salah) / EN: Probe fail. Probe is not in expected initial state before starting]"
+            5 -> "[ID: Gagal probe (Tidak menyentuh bahan) / EN: Probe fail. Probe did not contact workpiece within travel]"
+            6 -> "[ID: Gagal homing (Cycle di-reset) / EN: Homing fail. The active homing cycle was reset]"
+            7 -> "[ID: Gagal homing (Pintu terbuka) / EN: Homing fail. Safety door was opened during homing cycle]"
+            8 -> "[ID: Gagal homing (Limit tertekan) / EN: Homing fail. Pull off travel failed to clear limit switch]"
+            9 -> "[ID: Gagal homing (Limit tidak ketemu) / EN: Homing fail. Could not find limit switch within search distances]"
+            else -> null
+        }
+    }
+
+    private fun resolveFluidNCMessage(line: String): String {
+        var processed = line
+        
+        // 1. Resolve error:X code
+        val errorRegex = Regex("(?i)error\\s*:\\s*(\\d+)")
+        processed = errorRegex.replace(processed) { matchResult ->
+            val numStr = matchResult.groupValues[1]
+            val code = numStr.toIntOrNull() ?: -1
+            val desc = getFluidErrorDescription(code)
+            if (desc != null) {
+                "${matchResult.value} - $desc"
+            } else {
+                matchResult.value
+            }
+        }
+        
+        // 2. Resolve ALARM:X code
+        val alarmRegex = Regex("(?i)alarm\\s*:\\s*(\\d+)")
+        processed = alarmRegex.replace(processed) { matchResult ->
+            val numStr = matchResult.groupValues[1]
+            val code = numStr.toIntOrNull() ?: -1
+            val desc = getFluidAlarmDescription(code)
+            if (desc != null) {
+                "${matchResult.value} - $desc"
+            } else {
+                matchResult.value
+            }
+        }
+        
+        return processed
+    }
+
     fun appendConsoleLog(line: String) {
+        val resolvedLine = resolveFluidNCMessage(line)
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-        fluidNCConsoleResponse = (fluidNCConsoleResponse + "[$time] $line").takeLast(50)
+        fluidNCConsoleResponse = (fluidNCConsoleResponse + "[$time] $resolvedLine").takeLast(50)
     }
 
     fun sendFluidCommand(gcode: String) {
