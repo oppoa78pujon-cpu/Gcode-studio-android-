@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -2186,6 +2187,17 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
 
     // Navigation and interactive camera visualizer states for rendering toolpath lines
     var is3DView by remember { mutableStateOf(false) }
+    
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse_halo")
+    val pulseValue by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
     var canvasZoom by remember { mutableStateOf(1.0f) }
     var panOffsetX by remember { mutableStateOf(0f) }
     var panOffsetY by remember { mutableStateOf(0f) }
@@ -2428,17 +2440,79 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
                                             strokeWidth = 2.5.dp.toPx(),
                                             cap = StrokeCap.Round
                                         )
+
+                                        // Draw beautiful directional chevrons/arrowheads along the CUT lines so the path direction is clear
+                                        if (i % 8 == 0) {
+                                            val dx = endDraw.x - startDraw.x
+                                            val dy = endDraw.y - startDraw.y
+                                            val len = kotlin.math.hypot(dx, dy)
+                                            if (len > 14f) {
+                                                val midX = (startDraw.x + endDraw.x) / 2f
+                                                val midY = (startDraw.y + endDraw.y) / 2f
+                                                
+                                                val ux = dx / len
+                                                val uy = dy / len
+                                                
+                                                val ox = -uy
+                                                val oy = ux
+                                                
+                                                val wingOffset = 3.dp.toPx()
+                                                val arrowBaseX = midX - ux * wingOffset
+                                                val arrowBaseY = midY - uy * wingOffset
+                                                
+                                                val leftWingX = arrowBaseX - ox * wingOffset
+                                                val leftWingY = arrowBaseY - oy * wingOffset
+                                                
+                                                val rightWingX = arrowBaseX + ox * wingOffset
+                                                val rightWingY = arrowBaseY + oy * wingOffset
+                                                
+                                                // Left wing of chevron
+                                                drawLine(
+                                                    color = glowingCyan.copy(alpha = 0.8f),
+                                                    start = Offset(midX, midY),
+                                                    end = Offset(leftWingX, leftWingY),
+                                                    strokeWidth = 1.5.dp.toPx(),
+                                                    cap = StrokeCap.Round
+                                                )
+                                                // Right wing of chevron
+                                                drawLine(
+                                                    color = glowingCyan.copy(alpha = 0.8f),
+                                                    start = Offset(midX, midY),
+                                                    end = Offset(rightWingX, rightWingY),
+                                                    strokeWidth = 1.5.dp.toPx(),
+                                                    cap = StrokeCap.Round
+                                                )
+                                            }
+                                        }
                                     }
 
-                                    // Render active CNC drawing cursor dot
+                                    // Render active CNC drawing cursor dot with concentric pulsing glow
                                     if (i == drawLimit - 1) {
+                                        val cursorColor = when (viewModel.toolType) {
+                                            "LASER" -> LaserCrimson
+                                            "SPINDLE" -> SpindleGold
+                                            else -> RouterGreen
+                                        }
+
+                                        // Pulsing outer halo matching the active laser/spindle power setting
                                         drawCircle(
-                                            color = when (viewModel.toolType) {
-                                                "LASER" -> LaserCrimson
-                                                "SPINDLE" -> SpindleGold
-                                                else -> RouterGreen
-                                            },
-                                            radius = 6.dp.toPx(),
+                                            color = cursorColor.copy(alpha = (2.0f - pulseValue).coerceIn(0f, 0.45f)),
+                                            radius = 11.dp.toPx() * pulseValue,
+                                            center = endDraw,
+                                            style = Stroke(width = 1.8.dp.toPx())
+                                        )
+
+                                        // Glow gradient envelope
+                                        drawCircle(
+                                            color = cursorColor.copy(alpha = 0.25f),
+                                            radius = 7.dp.toPx() * pulseValue,
+                                            center = endDraw
+                                        )
+
+                                        // Core cursor head
+                                        drawCircle(
+                                            color = cursorColor,
+                                            radius = 5.dp.toPx(),
                                             center = endDraw
                                         )
                                         drawCircle(
@@ -5059,6 +5133,210 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                     }
                 }
 
+                // Workpiece Corner Origin G92 Set Tool (Atur Posisi Awal / Pojokan Bahan)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = "Origin", tint = PrimaryCyan, modifier = Modifier.size(16.dp))
+                            Text(
+                                if (lang == "id") "TETAPKAN TITIK NOL POJOKAN BAHAN" else "WORKPIECE CORNER ZERO ALIGNER",
+                                color = PrimaryCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Text(
+                            if (lang == "id") "Sejajarkan ujung router ke salah satu pojokan bahan secara manual, lalu ketuk sudut pada papan di bawah untuk menyamakan sistem koordinat kerja (G92)."
+                            else "Jog the router bit manually to any workpiece corner, then tap the corresponding board corner below to apply coordinate alignment (G92).",
+                            color = UnselectedGrey,
+                            fontSize = 9.sp
+                        )
+
+                        Divider(color = Color.Gray.copy(alpha = 0.15f), thickness = 0.5.dp)
+
+                        // Material Size Inputs
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.workspaceWidth.toInt().toString(),
+                                onValueChange = {
+                                    val newVal = it.toFloatOrNull() ?: viewModel.workspaceWidth
+                                    viewModel.workspaceWidth = newVal.coerceIn(10f, 1000f)
+                                },
+                                label = { Text(if (lang == "id") "Lebar Bahan (W - mm)" else "Width (W - mm)", fontSize = 9.sp) },
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = PrimaryCyan,
+                                    unfocusedBorderColor = BorderCyan.copy(alpha = 0.4f),
+                                    focusedLabelColor = PrimaryCyan,
+                                    unfocusedLabelColor = UnselectedGrey
+                                ),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = viewModel.workspaceHeight.toInt().toString(),
+                                onValueChange = {
+                                    val newVal = it.toFloatOrNull() ?: viewModel.workspaceHeight
+                                    viewModel.workspaceHeight = newVal.coerceIn(10f, 1000f)
+                                },
+                                label = { Text(if (lang == "id") "Panjang Bahan (H - mm)" else "Length (H - mm)", fontSize = 9.sp) },
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = TextLight),
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = PrimaryCyan,
+                                    unfocusedBorderColor = BorderCyan.copy(alpha = 0.4f),
+                                    focusedLabelColor = PrimaryCyan,
+                                    unfocusedLabelColor = UnselectedGrey
+                                ),
+                                singleLine = true
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Interactive Workpiece Board Representation
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Visual Board (a dark plate with 5 target nodes)
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 160.dp, height = 110.dp)
+                                    .background(Color(0xFF0F0E13), RoundedCornerShape(10.dp))
+                                    .border(BorderStroke(1.dp, BorderCyan.copy(alpha = 0.3f)), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    drawRect(
+                                        color = BorderCyan.copy(alpha = 0.05f),
+                                        size = size
+                                    )
+                                    // Sub lines representing alignment guide
+                                    drawLine(
+                                        color = BorderCyan.copy(alpha = 0.15f),
+                                        start = Offset(0f, size.height / 2f),
+                                        end = Offset(size.width, size.height / 2f),
+                                        strokeWidth = 1f
+                                    )
+                                    drawLine(
+                                        color = BorderCyan.copy(alpha = 0.15f),
+                                        start = Offset(size.width / 2f, 0f),
+                                        end = Offset(size.width / 2f, size.height),
+                                        strokeWidth = 1f
+                                    )
+                                }
+
+                                val w = viewModel.workspaceWidth.toInt()
+                                val h = viewModel.workspaceHeight.toInt()
+
+                                // 1. Top Left Node (Atas-Kiri)
+                                CornerOriginNode(
+                                    align = Alignment.TopStart,
+                                    label = "TL",
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92 X0 Y$h")
+                                        Toast.makeText(context, if (lang == "id") "Nol Kerja disetel ke Kiri-Atas (X0 Y$h)!" else "Work Coordinate Origin set to Top-Left!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+
+                                // 2. Top Right Node (Atas-Kanan)
+                                CornerOriginNode(
+                                    align = Alignment.TopEnd,
+                                    label = "TR",
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92 X$w Y$h")
+                                        Toast.makeText(context, if (lang == "id") "Nol Kerja disetel ke Kanan-Atas (X$w Y$h)!" else "Work Coordinate Origin set to Top-Right!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+
+                                // 3. Center Node (Tengah)
+                                CornerOriginNode(
+                                    align = Alignment.Center,
+                                    label = "MID",
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92 X${w/2} Y${h/2}")
+                                        Toast.makeText(context, if (lang == "id") "Nol Kerja disetel ke Pusat (X${w/2} Y${h/2})!" else "Work Coordinate Origin set to Center!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+
+                                // 4. Bottom Left Node (Bawah-Kiri)
+                                CornerOriginNode(
+                                    align = Alignment.BottomStart,
+                                    label = "BL",
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92 X0 Y0")
+                                        Toast.makeText(context, if (lang == "id") "Nol Kerja disetel ke Kiri-Bawah (X0 Y0)!" else "Work Coordinate Origin set to Bottom-Left!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+
+                                // 5. Bottom Right Node (Bawah-Kanan)
+                                CornerOriginNode(
+                                    align = Alignment.BottomEnd,
+                                    label = "BR",
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92 X$w Y0")
+                                        Toast.makeText(context, if (lang == "id") "Nol Kerja disetel ke Kanan-Bawah (X$w Y0)!" else "Work Coordinate Origin set to Bottom-Right!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            // Quick Presets Descriptions/Control List
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    if (lang == "id") "Sudut Acuan Pahat:" else "Cutter Corner Reference:",
+                                    color = UnselectedGrey,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (lang == "id") "Arah gerak & alur laju router dikalkulasi dari titik G92 offset terpilih."
+                                    else "Cutter flow & feed directions are configured relative to targeted G92 coordinate shift.",
+                                    color = TextLight.copy(alpha = 0.7f),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.sendFluidCommand("G92.1")
+                                        Toast.makeText(context, if (lang == "id") "Setelan G92 offset di-reset!" else "All coordinate offsets reset!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SlateDark, contentColor = PrimaryCyan),
+                                    border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.fillMaxWidth().height(28.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (lang == "id") "RESET ABSOLUT (G92.1)" else "CLEAR OFFSETS (G92.1)", fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Hot Macros and Emergency Stop Row
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -6088,5 +6366,45 @@ private fun getFileNameFromUri(context: android.content.Context, uri: android.ne
         }
     }
     return result ?: "drawing.dxf"
+}
+
+@Composable
+fun BoxScope.CornerOriginNode(
+    align: Alignment,
+    label: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
+    ) {
+        Button(
+            onClick = onClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF231E2B),
+                contentColor = PrimaryCyan
+            ),
+            shape = androidx.compose.foundation.shape.CircleShape,
+            border = BorderStroke(1.2.dp, PrimaryCyan.copy(alpha = 0.8f)),
+            modifier = Modifier
+                .align(align)
+                .size(32.dp),
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    color = PrimaryCyan
+                )
+            }
+        }
+    }
 }
 
