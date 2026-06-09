@@ -6840,12 +6840,26 @@ fun AspireCADCAMPane(viewModel: GCodeViewModel) {
     ) { uri ->
         uri?.let {
             try {
+                var resolvedName = "Custom Loaded STL Mesh"
+                try {
+                    val cursor = context.contentResolver.query(it, null, null, null, null)
+                    cursor?.use { c ->
+                        if (c.moveToFirst()) {
+                            val displayNameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (displayNameIndex != -1) {
+                                resolvedName = c.getString(displayNameIndex)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore, keep fallback
+                }
                 val inputStream = context.contentResolver.openInputStream(it)
                 if (inputStream != null) {
                     val grid = parseStlToDepthMap(inputStream, 64, 64)
                     reliefDepthGrid = grid
                     selected3DModelPreset = "CUSTOM_STL"
-                    stlFileName = "Custom Loaded STL Mesh"
+                    stlFileName = resolvedName
                     android.widget.Toast.makeText(context, "3D STL Mesh sliced & projected into relief!", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
@@ -7535,7 +7549,7 @@ fun AspireCADCAMPane(viewModel: GCodeViewModel) {
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Button(
-                                        onClick = { dxfPickerLauncher.launch("application/octet-stream") },
+                                        onClick = { dxfPickerLauncher.launch("*/*") },
                                         colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
                                         shape = RoundedCornerShape(4.dp),
                                         modifier = Modifier.height(30.dp).weight(1f),
@@ -7662,7 +7676,7 @@ fun AspireCADCAMPane(viewModel: GCodeViewModel) {
 
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Button(
-                                        onClick = { stlPickerLauncher.launch("application/octet-stream") },
+                                        onClick = { stlPickerLauncher.launch("*/*") },
                                         colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
                                         shape = RoundedCornerShape(4.dp),
                                         modifier = Modifier.height(26.dp).weight(1f),
@@ -9362,9 +9376,16 @@ private fun parseStlToDepthMap(inputStream: java.io.InputStream, gridWidth: Int 
         val bytes = inputStream.readBytes()
         if (bytes.size < 84) return grid
         
-        // Auto-detect format type: ASCII starts with "solid" keyword
-        val headerString = bytes.take(80).toByteArray().decodeToString()
-        val isAscii = headerString.trimStart().startsWith("solid")
+        // Auto-detect format type: ASCII starts with "solid" keyword and has no null bytes in its prefix
+        val prefixSize = minOf(bytes.size, 500)
+        val prefixBytes = bytes.take(prefixSize).toByteArray()
+        val hasNullByte = prefixBytes.contains(0x00.toByte())
+        val isAscii = try {
+            val prefixString = prefixBytes.decodeToString()
+            prefixString.trimStart().lowercase().startsWith("solid") && !hasNullByte
+        } catch (e: Exception) {
+            false
+        }
         
         val triangles = mutableListOf<Triple<AspireVector3, AspireVector3, AspireVector3>>()
         
