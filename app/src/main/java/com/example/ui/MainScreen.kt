@@ -12,6 +12,9 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.PathEffect
+import android.content.Context
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -131,11 +134,12 @@ class ResponsiveFlexScope(
 fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var activeTab by remember { mutableStateOf("TEXT") } // TEXT, SKETCH, AI_STUDIO, PREVIEW, FILES, SETTINGS
+    var activeTab by remember { mutableStateOf("ASPIRE") } // ASPIRE, TEXT, SKETCH, AI_STUDIO, PREVIEW, FILES, SETTINGS
     
     // Multi-Language Strings dictionary
     val lang = viewModel.language
     val tAppTitle = if (lang == "id") "FluidNC G-code Studio" else "FluidNC G-Code Studio"
+    val tAspireTab = if (lang == "id") "Vectric Aspire" else "Vectric Aspire"
     val tTextTab = if (lang == "id") "Teks" else "Text"
     val tSketchTab = if (lang == "id") "Sketsa/Gambar" else "Sketch/Image"
     val tAiTab = if (lang == "id") "Galeri Preset" else "Preset Gallery"
@@ -193,13 +197,14 @@ fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
                     }
 
                     val tabs = listOf(
+                            Triple("ASPIRE", tAspireTab, Icons.Default.Create),
                             Triple("TEXT", tTextTab, Icons.Default.Edit),
-                            Triple("SKETCH", tSketchTab, Icons.Default.Create),
+                            Triple("SKETCH", tSketchTab, Icons.Default.Share),
                             Triple("AI_STUDIO", tAiTab, Icons.Default.Star),
                             Triple("CONVERTER", if (lang == "id") "Konverter CNC" else "CNC Converter", Icons.Default.Refresh),
-                            Triple("DXF", if (lang == "id") "Konverter DXF" else "DXF Plotter", Icons.Default.Share),
+                            Triple("DXF", if (lang == "id") "Konverter DXF" else "DXF Plotter", Icons.Default.Build),
                             Triple("PREVIEW", tPreviewTab, Icons.Default.PlayArrow),
-                            Triple("FLUIDNC", if (lang == "id") "FluidNC Wi-Fi" else "FluidNC Control", Icons.Default.Build),
+                            Triple("FLUIDNC", if (lang == "id") "FluidNC Wi-Fi" else "FluidNC Control", Icons.Default.Menu),
                             Triple("FILES", tFilesTab, Icons.Default.List),
                             Triple("SETTINGS", tSettingsTab, Icons.Default.Settings)
                         )
@@ -244,6 +249,7 @@ fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
                     .weight(1f)
             ) {
                 when (activeTab) {
+                    "ASPIRE" -> AspireCADCAMPane(viewModel)
                     "TEXT" -> TextCreatorPane(viewModel)
                     "SKETCH" -> SketchAndImagePane(viewModel)
                     "AI_STUDIO" -> PatternPresetPane(viewModel)
@@ -6581,4 +6587,3121 @@ fun highlightGCode(text: String): AnnotatedString {
         }
     }
 }
+
+// =========================================================================
+// VECTRIC ASPIRE MOBILE CAD/CAM STUDIO
+// =========================================================================
+
+data class AspireVector(
+    val id: String,
+    val type: String, // "Circle", "Rectangle", "Polygon", "Star", "Polyline", "Text"
+    val name: String,
+    val cx: Float = 0f,
+    val cy: Float = 0f,
+    val radius: Float = 0f,
+    val width: Float = 0f,
+    val height: Float = 0f,
+    val cornerRadius: Float = 0f,
+    val sides: Int = 6,
+    val points: Int = 5,
+    val innerRatio: Float = 0.5f,
+    val textStr: String = "",
+    val textHeight: Float = 12f,
+    val rawPoints: List<Offset> = emptyList(),
+    val isSelected: Boolean = false
+)
+
+data class CAMOperation(
+    val id: String,
+    val name: String,
+    val type: String, // PROFILE, POCKET, DRILL, 3D_ROUGH, 3D_FINISH
+    val toolName: String,
+    val cutDepth: Float,
+    val stepDown: Float,
+    val feedRate: Float,
+    val plungeRate: Float,
+    val rawPaths: List<List<Offset>> = emptyList(),
+    val gcode: String = "",
+    val isEnabled: Boolean = true
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AspireCADCAMPane(viewModel: GCodeViewModel) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val lang = viewModel.language
+
+    // --- TRANSLATION DICTIONARY ---
+    val tTitle = if (lang == "id") "Vectric ASPIRE CAD/CAM Studio" else "Vectric ASPIRE CAD/CAM Studio"
+    val tDesc = if (lang == "id") "Studio CAD/CAM profesional terintegrasi untuk mendesain gambar vektor dan mengonversi menjadi multi-pass G-code mirip software PC Vectric Aspire." else "Professional integrated CAD/CAM workspace for drafting vector shapes and compiling optimized multi-pass CNC G-code."
+    
+    // UI state
+    var selectedTabPreview by remember { mutableStateOf("2D_CAD") } // "2D_CAD" or "3D_SIMULATION"
+    var selectedCADTool by remember { mutableStateOf("NONE") } // NONE, CIRCLE, RECTANGLE, POLYGON, STAR, OVAL, ARC, POLYLINE, TEXT
+    var activeWorkspaceTab by remember { mutableStateOf("CAD") } // "CAD" Drawing vs "CAM" Toolpaths vs "CONTROL" Machine
+    var unitSystem by remember { mutableStateOf("MM") } // "MM" vs "INCH"
+    var zZeroLocation by remember { mutableStateOf("TOP") } // "TOP" Surface vs "BED" Table
+    var datumOriginIndex by remember { mutableStateOf(2) } // 0: BL, 1: TL, 2: Center, 3: BR, 4: TR
+    var cornerTreatmentType by remember { mutableStateOf("SQUARE") } // SQUARE, ROUNDED, DOGBONE, TBONE
+    var vectorOffsetDistance by remember { mutableStateOf("3.0") }
+    var pocketRasterRotation by remember { mutableStateOf("0.0") }
+    var pigmentInfillColor by remember { mutableStateOf("NATURAL") } // NATURAL, BLACK, GOLD, BLUE, RED
+    var spindleAudioVolume by remember { mutableStateOf(0.5f) }
+    
+    // CAM Multi-Operations list
+    val camOperationsList = remember { mutableStateListOf<CAMOperation>() }
+    
+    // CNC Offline Controller & Jogger States
+    var machineConnectedState by remember { mutableStateOf("DISCONNECTED") } // DISCONNECTED, CONNECTING, CONNECTED
+    var jogStepSize by remember { mutableStateOf(10.0f) } // 0.1, 1.0, 10.0, 50.0
+    var currentXCoord by remember { mutableStateOf(0.00f) }
+    var currentYCoord by remember { mutableStateOf(0.00f) }
+    var currentZCoord by remember { mutableStateOf(5.00f) }
+    var maxFeedrateOverride by remember { mutableStateOf(100) }
+    var spindleRpmOverride by remember { mutableStateOf(100) }
+    val consoleTerminalOutput = remember { mutableStateListOf<String>(
+        "Mobile Serial Link Console active.",
+        "[System] CNC GRBL/FluidNC protocol active.",
+        "[Status] Click 'CONNECT' to link electronic controller."
+    ) }
+    var consoleCommandInput by remember { mutableStateOf("") }
+    
+    // Dynamic vector entities list
+    val vectorsList = remember { mutableStateListOf<AspireVector>() }
+    var selectedVectorId by remember { mutableStateOf<String?>(null) }
+
+    // --- 3D MODELLING RELIEF & TRACING STATES (VECTRIC ASPIRE STYLE) ---
+    var selected3DModelPreset by remember { mutableStateOf("NONE") } // NONE, ROSETTE, EAGLE, ROSE, CUSTOM_STL
+    var stlFileName by remember { mutableStateOf<String?>(null) }
+    var reliefDepthGrid by remember { mutableStateOf<Array<FloatArray>?>(null) }
+    var reliefZMax by remember { mutableStateOf("6.0") }
+    var reliefScale by remember { mutableStateOf("1.0") }
+    var reliefCombineMode by remember { mutableStateOf("ADD") } // ADD, SUBTRACT
+    var reliefCx by remember { mutableStateOf("0.0") }
+    var reliefCy by remember { mutableStateOf("0.0") }
+    
+    // Advanced 3D features
+    var reliefSmoothingPasses by remember { mutableStateOf(0) } // 0: None, 1: Low, 2: Med, 3: High
+    var reliefNoiseRoughness by remember { mutableStateOf(0.0f) } // 0.0f to 0.15f
+    var reliefContrast by remember { mutableStateOf(1.0f) } // 0.5f to 2.0f
+    var reliefRasterAngle by remember { mutableStateOf("0.0") } // "0.0", "45.0", "90.0"
+    
+    var traceThreshold by remember { mutableStateOf(0.45f) }
+    var importedTraceBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+    // Dynamic 3D relief grid calculation effect
+    LaunchedEffect(
+        selected3DModelPreset, reliefScale, reliefCx, reliefCy, reliefCombineMode,
+        reliefSmoothingPasses, reliefNoiseRoughness, reliefContrast
+    ) {
+        val sc = reliefScale.toFloatOrNull() ?: 1.0f
+        val cxOff = reliefCx.toFloatOrNull() ?: 0f
+        val cyOff = reliefCy.toFloatOrNull() ?: 0f
+        val sub = reliefCombineMode == "SUBTRACT"
+        
+        val baseGrid = when (selected3DModelPreset) {
+            "ROSETTE" -> generateRosetteGrid()
+            "EAGLE" -> generateEagleGrid()
+            "ROSE" -> generateRoseGrid()
+            else -> reliefDepthGrid // retains custom STL data
+        }
+        
+        if (baseGrid != null) {
+            var transformed = Array(64) { FloatArray(64) }
+            for (x in 0 until 64) {
+                for (y in 0 until 64) {
+                    val sourceX = ((x - 32) / sc + 32 - cxOff * (64f / 120f)).toInt()
+                    val sourceY = ((y - 32) / sc + 32 + cyOff * (64f / 120f)).toInt()
+                    
+                    var valZ = 0f
+                    if (sourceX in 0 until 64 && sourceY in 0 until 64) {
+                        valZ = baseGrid[sourceX][sourceY]
+                    }
+                    if (sub) {
+                        valZ = if (valZ > 0.015f) (1.0f - valZ) else 0f
+                    }
+                    transformed[x][y] = valZ
+                }
+            }
+
+            // ADVANCED 3D FILTER 1: Noise Roughness (Wood/Stone Textured Relief Carving)
+            if (reliefNoiseRoughness > 0.001f) {
+                for (x in 0 until 64) {
+                    for (y in 0 until 64) {
+                        if (transformed[x][y] > 0.012f) {
+                            val pseudoNoise = (Math.sin(x * 2.5 + y * 1.8) * Math.cos(x * 1.1 - y * 1.4)).toFloat() * reliefNoiseRoughness
+                            transformed[x][y] = (transformed[x][y] + pseudoNoise).coerceIn(0.01f, 1.0f)
+                        }
+                    }
+                }
+            }
+
+            // ADVANCED 3D FILTER 2: Material Smoothing Filter (Box blurring filter mimicking physical tool sand finishing)
+            if (reliefSmoothingPasses > 0) {
+                val passes = reliefSmoothingPasses.coerceIn(1, 4)
+                for (pass in 0 until passes) {
+                    val smoothed = Array(64) { FloatArray(64) }
+                    for (x in 0 until 64) {
+                        for (y in 0 until 64) {
+                            var sum = 0f
+                            var count = 0
+                            for (dx in -1..1) {
+                                for (dy in -1..1) {
+                                    val nx = x + dx
+                                    val ny = y + dy
+                                    if (nx in 0 until 64 && ny in 0 until 64) {
+                                        sum += transformed[nx][ny]
+                                        count++
+                                    }
+                                }
+                            }
+                            smoothed[x][y] = sum / count
+                        }
+                    }
+                    transformed = smoothed
+                }
+            }
+
+            // ADVANCED 3D FILTER 3: Height Contrast Adjuster
+            if (Math.abs(reliefContrast - 1.0f) > 0.02f) {
+                for (x in 0 until 64) {
+                    for (y in 0 until 64) {
+                        if (transformed[x][y] > 0.012f) {
+                            val centered = transformed[x][y] - 0.4f
+                            transformed[x][y] = (0.4f + centered * reliefContrast).coerceIn(0f, 1.0f)
+                        }
+                    }
+                }
+            }
+
+            reliefDepthGrid = transformed
+        } else if (selected3DModelPreset == "NONE") {
+            reliefDepthGrid = null
+        }
+    }
+
+    // Launchers for choosing files
+    val dxfPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                if (inputStream != null) {
+                    val parsed = com.example.utils.DXFParser.parse(inputStream)
+                    if (parsed.isNotEmpty()) {
+                        parsed.forEachIndexed { sIdx, path ->
+                            vectorsList.add(
+                                AspireVector(
+                                    id = "dxf_import_${System.currentTimeMillis()}_$sIdx",
+                                    type = "Polyline",
+                                    name = "DXF Path ${sIdx + 1}",
+                                    rawPoints = path,
+                                    cx = 0f,
+                                    cy = 0f
+                                )
+                            )
+                        }
+                        android.widget.Toast.makeText(context, "DXF CAD imported: ${parsed.size} paths added", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "No vector paths found in DXF file!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "DXF Import Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val traceImagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                if (inputStream != null) {
+                    val decoded = android.graphics.BitmapFactory.decodeStream(inputStream)
+                    if (decoded != null) {
+                        importedTraceBitmap = decoded
+                        android.widget.Toast.makeText(context, "Tracing image loaded! Adjust slider and click 'Apply Trace'", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "Failed to decode image pixels!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Image Load Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val stlPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                if (inputStream != null) {
+                    val grid = parseStlToDepthMap(inputStream, 64, 64)
+                    reliefDepthGrid = grid
+                    selected3DModelPreset = "CUSTOM_STL"
+                    stlFileName = "Custom Loaded STL Mesh"
+                    android.widget.Toast.makeText(context, "3D STL Mesh sliced & projected into relief!", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "STL Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Shape Draft Fields
+    var cxInput by remember { mutableStateOf("0") }
+    var cyInput by remember { mutableStateOf("0") }
+    var rInput by remember { mutableStateOf("25") }
+    var wInput by remember { mutableStateOf("60") }
+    var hInput by remember { mutableStateOf("40") }
+    var cornerRadiusInput by remember { mutableStateOf("5") }
+    var polySidesInput by remember { mutableStateOf("6") }
+    var starPointsInput by remember { mutableStateOf("5") }
+    var starRatioInput by remember { mutableStateOf("50") } // 50%
+    var textStrInput by remember { mutableStateOf("ASPIRE CNC") }
+    var textHeightInput by remember { mutableStateOf("15") }
+
+    // Arc input fields
+    var arcStartXInput by remember { mutableStateOf("-30") }
+    var arcStartYInput by remember { mutableStateOf("0") }
+    var arcEndXInput by remember { mutableStateOf("30") }
+    var arcEndYInput by remember { mutableStateOf("0") }
+    var arcBulgeInput by remember { mutableStateOf("12") }
+
+    // Polyline local coordinate draft points list
+    val draftedPolylineNodes = remember { mutableStateListOf<Offset>() }
+
+    // CAM parameters
+    var toolpathType by remember { mutableStateOf("PROFILE") } // PROFILE, POCKET, DRILL
+    var cutDepth by remember { mutableStateOf("-3.0") } // Z depth
+    var stepDown by remember { mutableStateOf("1.0") } // Z pass depth
+    var spindleRPM by remember { mutableStateOf("16000") } // RPM
+    var cuttingSide by remember { mutableStateOf("OUTSIDE") } // OUTSIDE, INSIDE, ON
+    var selectedBitName by remember { mutableStateOf("End Mill 1/8\" (3.175mm)") }
+    var cuttingDirection by remember { mutableStateOf("CLIMB") } // CLIMB vs CONVENTIONAL
+    var enableHoldingTabs by remember { mutableStateOf(false) }
+    var holdingTabsCount by remember { mutableStateOf(4) }
+    var materialType by remember { mutableStateOf("WALNUT") } // OAK, WALNUT, CHERRY, PINE, BRASS, SLATE
+    var activePostProcessor by remember { mutableStateOf("Vectric WinCNC (*.tap)") }
+    
+    // Calculation outputs
+    var isCalculated by remember { mutableStateOf(false) }
+    var estimatedTimeStr by remember { mutableStateOf("00:00") }
+    var totalGCodeLines by remember { mutableStateOf(0) }
+    var activeGCodePreview by remember { mutableStateOf("") }
+    
+    // Simulation triggers
+    var isSimPlaying by remember { mutableStateOf(false) }
+    var simTimeProg by remember { mutableStateOf(0f) } // 0f to 1f
+
+    // Standard pre-populating with a gorgeous "Vectric Commemorative Shield" template
+    LaunchedEffect(Unit) {
+        if (vectorsList.isEmpty()) {
+            // Preset 1: Outer Rectangle Board Border
+            vectorsList.add(
+                AspireVector(
+                    id = "v_border",
+                    type = "Rectangle",
+                    name = "Outer Border",
+                    cx = 0f,
+                    cy = 0f,
+                    width = 120f,
+                    height = 120f,
+                    cornerRadius = 8f,
+                    rawPoints = createRectanglePoints(0f, 0f, 120f, 120f, 8f)
+                )
+            )
+            // Preset 2: Engraved badge outer star
+            vectorsList.add(
+                AspireVector(
+                    id = "v_shield",
+                    type = "Star",
+                    name = "Medal Star",
+                    cx = 0f,
+                    cy = 0f,
+                    points = 8,
+                    radius = 35f,
+                    innerRatio = 0.6f,
+                    rawPoints = createStarPoints(0f, 0f, 8, 35f, 35f * 0.6f)
+                )
+            )
+            // Preset 3: Center Core Carving
+            vectorsList.add(
+                AspireVector(
+                    id = "v_core",
+                    type = "Circle",
+                    name = "Inner Circle",
+                    cx = 0f,
+                    cy = 0f,
+                    radius = 16f,
+                    rawPoints = createCirclePoints(0f, 0f, 16f)
+                )
+            )
+            // Preset 4: Text engraving
+            vectorsList.add(
+                AspireVector(
+                    id = "v_text",
+                    type = "Text",
+                    name = "Center Text",
+                    cx = 0f,
+                    cy = -4f,
+                    textStr = "CNC",
+                    textHeight = 10f,
+                    rawPoints = createTextVectorPoints("CNC", 0f, -4f, 10f)
+                )
+            )
+        }
+    }
+
+    // Interactive simulation thread
+    LaunchedEffect(isSimPlaying) {
+        if (isSimPlaying) {
+            simTimeProg = 0f
+            while (simTimeProg < 1.0f && isSimPlaying) {
+                delay(30)
+                simTimeProg += 0.008f
+            }
+            isSimPlaying = false
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // --- PAGE HEADER BLOCK ---
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardDark),
+            border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Create,
+                            contentDescription = "Vectric",
+                            tint = PrimaryCyan,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = tTitle,
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = tDesc,
+                        color = Color(0xFFB0BEC5),
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+
+        // --- DUAL COLUMN / FLEX CAD-CAM SYSTEM ---
+        ResponsiveFlexLayout(spacing = 16.dp) {
+            // ================== SIDEBAR TOOLBOX (LEFT) ==================
+            FlexItem(expandedWeight = 0.45f) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // --- VECTRIC WORKSPACE SEPARATOR TABS ---
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0C101B), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(8.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Button(
+                            onClick = { activeWorkspaceTab = "CAD" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeWorkspaceTab == "CAD") PrimaryCyan else Color.Transparent,
+                                contentColor = if (activeWorkspaceTab == "CAD") Color.Black else Color.White
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.weight(1f).height(34.dp).testTag("tab_drawing_cad"),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Create, null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(if (lang == "id") "CAD" else "CAD Drafting", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { activeWorkspaceTab = "CAM" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeWorkspaceTab == "CAM") SpindleGold else Color.Transparent,
+                                contentColor = if (activeWorkspaceTab == "CAM") Color.Black else Color.White
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.weight(1.5f).height(34.dp).testTag("tab_toolpath_cam"),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Build, null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(if (lang == "id") "CAM" else "CAM Toolpaths", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { activeWorkspaceTab = "CONTROL" },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeWorkspaceTab == "CONTROL") Color(0xFF4CAF50) else Color.Transparent,
+                                contentColor = if (activeWorkspaceTab == "CONTROL") Color.Black else Color.White
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.weight(1.5f).height(34.dp).testTag("tab_machine_control"),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Home, null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(if (lang == "id") "Kontrol" else "CNC Jogger", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (activeWorkspaceTab == "CAD") {
+                        // ================== DRAWING PANEL (CAD) ==================
+                        // 1. Job Setup Material Sizing
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Settings, null, tint = SpindleGold, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (lang == "id") "1. DIMENSI PAPAN & UNIT" else "1. MATERIAL SIZE & UNITS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                }
+                                
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Width X (${unitSystem.lowercase()})", fontSize = 8.sp, color = UnselectedGrey)
+                                        OutlinedTextField(
+                                            value = viewModel.workspaceWidth.toString(),
+                                            onValueChange = { newVal -> newVal.toFloatOrNull()?.let { viewModel.workspaceWidth = it } },
+                                            singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.height(44.dp).testTag("input_job_width")
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Height Y (${unitSystem.lowercase()})", fontSize = 8.sp, color = UnselectedGrey)
+                                        OutlinedTextField(
+                                            value = viewModel.workspaceHeight.toString(),
+                                            onValueChange = { newVal -> newVal.toFloatOrNull()?.let { viewModel.workspaceHeight = it } },
+                                            singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.height(44.dp).testTag("input_job_height")
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Thick Z (${unitSystem.lowercase()})", fontSize = 8.sp, color = UnselectedGrey)
+                                        OutlinedTextField(
+                                            value = viewModel.materialThickness.toString(),
+                                            onValueChange = { newVal -> newVal.toFloatOrNull()?.let { viewModel.materialThickness = it } },
+                                            singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.height(44.dp).testTag("input_job_thickness")
+                                        )
+                                    }
+                                }
+
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Unit System:", fontSize = 9.sp, color = TextLight)
+                                    Row {
+                                        listOf("MM", "INCH").forEach { u ->
+                                            val active = unitSystem == u
+                                            Button(
+                                                onClick = { unitSystem = u },
+                                                colors = ButtonDefaults.buttonColors(containerColor = if (active) PrimaryCyan else SlateDark, contentColor = if (active) Color.Black else Color.White),
+                                                shape = RoundedCornerShape(4.dp), modifier = Modifier.height(24.dp).padding(horizontal = 2.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp)
+                                            ) {
+                                                Text(u, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Interactive Datum Origin choosing (BL, TL, Center, etc.)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (lang == "id") "Titik Datum:" else "Datum Origin:", fontSize = 9.sp, color = TextLight)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf("B-Left", "Center", "T-Left").forEachIndexed { index, label ->
+                                            val act = datumOriginIndex == index
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (act) SpindleGold else SlateDark, RoundedCornerShape(4.dp))
+                                                    .clickable { datumOriginIndex = index }
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(label, fontSize = 8.sp, color = if (act) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Vector shape drawer panel
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Add, null, tint = PrimaryCyan, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (lang == "id") "2. BUAT VEKTOR BARU" else "2. CREATE GEOMETRIC VECTORS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryCyan)
+                                }
+
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    val shapes = listOf(
+                                        "CIRCLE" to "Circle", "RECTANGLE" to "Rect", "STAR" to "Star",
+                                        "POLYGON" to "Poly", "OVAL" to "Oval", "ARC" to "Arc", "TEXT" to "Text", "POLYLINE" to "Polyline"
+                                    )
+                                    shapes.forEach { (code, label) ->
+                                        val active = selectedCADTool == code
+                                        Button(
+                                            onClick = { selectedCADTool = if (active) "NONE" else code; draftedPolylineNodes.clear() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (active) PrimaryCyan else SlateDark, contentColor = if (active) Color.Black else Color.White),
+                                            shape = RoundedCornerShape(4.dp), modifier = Modifier.height(26.dp).testTag("btn_draw_$code"),
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+
+                                if (selectedCADTool != "NONE") {
+                                    Column(
+                                        modifier = Modifier.background(Color(0xFF0F1424), RoundedCornerShape(6.dp)).padding(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text("Setup Tool: $selectedCADTool", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                        
+                                        when (selectedCADTool) {
+                                            "CIRCLE" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = cxInput, onValueChange = { cxInput = it }, label = { Text("CX", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = cyInput, onValueChange = { cyInput = it }, label = { Text("CY", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = rInput, onValueChange = { rInput = it }, label = { Text("Rad R", fontSize = 8.sp) }, modifier = Modifier.weight(1.2f).height(44.dp))
+                                                }
+                                            }
+                                            "OVAL" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = cxInput, onValueChange = { cxInput = it }, label = { Text("CX", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = cyInput, onValueChange = { cyInput = it }, label = { Text("CY", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = wInput, onValueChange = { wInput = it }, label = { Text("Rad X", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = hInput, onValueChange = { hInput = it }, label = { Text("Rad Y", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                            }
+                                            "ARC" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = arcStartXInput, onValueChange = { arcStartXInput = it }, label = { Text("X-Start", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = arcStartYInput, onValueChange = { arcStartYInput = it }, label = { Text("Y-Start", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = arcEndXInput, onValueChange = { arcEndXInput = it }, label = { Text("X-End", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = arcEndYInput, onValueChange = { arcEndYInput = it }, label = { Text("Y-End", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = arcBulgeInput, onValueChange = { arcBulgeInput = it }, label = { Text("Bulge", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                            }
+                                            "RECTANGLE" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = cxInput, onValueChange = { cxInput = it }, label = { Text("CX", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = cyInput, onValueChange = { cyInput = it }, label = { Text("CY", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = wInput, onValueChange = { wInput = it }, label = { Text("W-Width", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = hInput, onValueChange = { hInput = it }, label = { Text("H-Height", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = cornerRadiusInput, onValueChange = { cornerRadiusInput = it }, label = { Text("Radius", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("Corner Style:", fontSize = 8.sp, color = TextLight)
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                        listOf("SQUARE", "ROUNDED", "DOGBONE", "TBONE").forEach { style ->
+                                                            val sSel = cornerTreatmentType == style
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .background(if (sSel) SpindleGold else SlateDark, RoundedCornerShape(3.dp))
+                                                                    .clickable { cornerTreatmentType = style }
+                                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Text(style, fontSize = 7.sp, color = if (sSel) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            "STAR" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = starPointsInput, onValueChange = { starPointsInput = it }, label = { Text("Points", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = rInput, onValueChange = { rInput = it }, label = { Text("Outer R", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = starRatioInput, onValueChange = { starRatioInput = it }, label = { Text("Ratio %", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                            }
+                                            "POLYGON" -> {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = polySidesInput, onValueChange = { polySidesInput = it }, label = { Text("Sides", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = rInput, onValueChange = { rInput = it }, label = { Text("Radius", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                }
+                                            }
+                                            "TEXT" -> {
+                                                OutlinedTextField(value = textStrInput, onValueChange = { textStrInput = it }, label = { Text("Text content", fontSize = 8.sp) }, modifier = Modifier.fillMaxWidth().height(44.dp))
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    OutlinedTextField(value = cxInput, onValueChange = { cxInput = it }, label = { Text("X", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = cyInput, onValueChange = { cyInput = it }, label = { Text("Y", fontSize = 8.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                                    OutlinedTextField(value = textHeightInput, onValueChange = { textHeightInput = it }, label = { Text("Height (mm)", fontSize = 8.sp) }, modifier = Modifier.weight(1.5f).height(44.dp))
+                                                }
+                                            }
+                                            "POLYLINE" -> {
+                                                Text("Tap canvas coordinate nodes to sketch profile segments directly.", fontSize = 8.sp, color = PrimaryCyan)
+                                                if (draftedPolylineNodes.isNotEmpty()) {
+                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                                        Text("Nodes: ${draftedPolylineNodes.size}", fontSize = 9.sp, color = Color.White)
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Button(onClick = { draftedPolylineNodes.clear() }, colors = ButtonDefaults.buttonColors(containerColor = LaserCrimson), modifier = Modifier.height(24.dp)) {
+                                                                Text("Clear", fontSize = 8.sp)
+                                                            }
+                                                            Button(
+                                                                onClick = {
+                                                                    if (draftedPolylineNodes.size >= 2) {
+                                                                        vectorsList.add(AspireVector(id = "vec_poly_${System.currentTimeMillis()}", type = "Polyline", name = "Polyline ${vectorsList.size}", rawPoints = draftedPolylineNodes.toList()))
+                                                                        draftedPolylineNodes.clear()
+                                                                    }
+                                                                },
+                                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)), modifier = Modifier.height(24.dp)
+                                                            ) {
+                                                                Text("Commit", fontSize = 8.sp, color = Color.Black)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (selectedCADTool != "POLYLINE") {
+                                            Button(
+                                                onClick = {
+                                                    try {
+                                                        val cx = cxInput.toFloatOrNull() ?: 0f
+                                                        val cy = cyInput.toFloatOrNull() ?: 0f
+                                                        val r = rInput.toFloatOrNull() ?: 20f
+                                                        val w = wInput.toFloatOrNull() ?: 50f
+                                                        val h = hInput.toFloatOrNull() ?: 30f
+                                                        val cr = cornerRadiusInput.toFloatOrNull() ?: 0f
+                                                        val sides = polySidesInput.toIntOrNull() ?: 6
+                                                        val starP = starPointsInput.toIntOrNull() ?: 5
+                                                        val starRatio = (starRatioInput.toFloatOrNull() ?: 50f) / 100f
+
+                                                        val pts = when (selectedCADTool) {
+                                                            "CIRCLE" -> createCirclePoints(cx, cy, r)
+                                                            "RECTANGLE" -> createRectanglePointsAdvanced(cx, cy, w, h, cornerTreatmentType, cr, 1.587f)
+                                                            "STAR" -> createStarPoints(cx, cy, starP, r, r * starRatio)
+                                                            "POLYGON" -> createPolygonPoints(cx, cy, r, sides)
+                                                            "OVAL" -> {
+                                                                val ptList = mutableListOf<Offset>()
+                                                                for (i in 0..40) {
+                                                                    val a = (i * 2 * Math.PI / 40.0).toFloat()
+                                                                    ptList.add(Offset(cx + w * Math.cos(a.toDouble()).toFloat(), cy + h * Math.sin(a.toDouble()).toFloat()))
+                                                                }
+                                                                ptList
+                                                            }
+                                                            "ARC" -> {
+                                                                val ax = arcStartXInput.toFloatOrNull() ?: -20f
+                                                                val ay = arcStartYInput.toFloatOrNull() ?: 0f
+                                                                val bx = arcEndXInput.toFloatOrNull() ?: 20f
+                                                                val by = arcEndYInput.toFloatOrNull() ?: 0f
+                                                                val bulge = arcBulgeInput.toFloatOrNull() ?: 10f
+                                                                val mx = (ax + bx) / 2f
+                                                                val my = (ay + by) / 2f
+                                                                val dx = bx - ax
+                                                                val dy = by - ay
+                                                                val d = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                                                val px = -dy / d * bulge
+                                                                val py = dx / d * bulge
+                                                                val ptList = mutableListOf<Offset>()
+                                                                for (i in 0..20) {
+                                                                    val t = i / 20f
+                                                                    val t1 = 1f - t
+                                                                    ptList.add(Offset(t1*t1*ax + 2*t1*t*(mx+px) + t*t*bx, t1*t1*ay + 2*t1*t*(my+py) + t*t*by))
+                                                                }
+                                                                ptList
+                                                            }
+                                                            "TEXT" -> createTextVectorPoints(textStrInput, cx, cy, textHeightInput.toFloatOrNull() ?: 12f)
+                                                            else -> emptyList()
+                                                        }
+
+                                                        if (pts.isNotEmpty()) {
+                                                            vectorsList.add(
+                                                                AspireVector(
+                                                                    id = "v_${System.currentTimeMillis()}", type = selectedCADTool, name = "$selectedCADTool ${vectorsList.size}",
+                                                                    cx = cx, cy = cy, radius = r, width = w, height = h, cornerRadius = cr, sides = sides, points = starP, innerRatio = starRatio,
+                                                                    textStr = textStrInput, textHeight = textHeightInput.toFloatOrNull() ?: 12f, rawPoints = pts
+                                                                )
+                                                            )
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "CAD Setup Fail", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan),
+                                                shape = RoundedCornerShape(4.dp), modifier = Modifier.fillMaxWidth().height(32.dp).testTag("btn_apply_cad_vector")
+                                            ) {
+                                                Text(if (lang == "id") "APPLY / DRAW VECTOR" else "APPLY / DRAW VECTOR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SlateDark)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Selected Vector Operator Matrix
+                        val activeV = vectorsList.find { it.id == selectedVectorId }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, if (activeV != null) SpindleGold.copy(alpha = 0.5f) else BorderCyan.copy(alpha = 0.2f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Refresh, null, tint = SpindleGold, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (lang == "id") "2B. OPERATOR VEKTOR CAD" else "2B. VECTOR OPERATORS (TRANSFORM)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                }
+
+                                if (activeV == null) {
+                                    Text("Click any 2D vector on the blueprint to unlock PC-grade structural operations (Contour Offsets, Transforms, Mirroring, Align).", fontSize = 8.sp, color = UnselectedGrey, lineHeight = 11.sp)
+                                } else {
+                                    Text("Selected: [${activeV.type.uppercase()}] ${activeV.name}", fontSize = 9.sp, color = PrimaryCyan, fontWeight = FontWeight.Bold)
+                                    
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        // Transforms
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("Scale Sizes:", fontSize = 8.sp, color = UnselectedGrey)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                listOf("0.9x", "1.1x").forEach { factor ->
+                                                    Box(modifier = Modifier.background(SlateDark, RoundedCornerShape(3.dp)).clickable {
+                                                        val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                        if (idx != -1) vectorsList[idx] = scaleVector(vectorsList[idx], if (factor =="0.9x") 0.9f else 1.1f)
+                                                    }.padding(horizontal = 6.dp, vertical = 3.dp)) { Text(factor, fontSize = 8.sp, color = Color.White) }
+                                                }
+                                            }
+                                            Text("Mirror Tools:", fontSize = 8.sp, color = UnselectedGrey)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Button(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = mirrorVector(vectorsList[idx], true)
+                                                }, colors = ButtonDefaults.buttonColors(containerColor = SlateDark), shape = RoundedCornerShape(3.dp), modifier = Modifier.height(20.dp).weight(1f), contentPadding = PaddingValues(0.dp)) {
+                                                    Text("Flip-H", fontSize = 7.sp)
+                                                }
+                                                Button(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = mirrorVector(vectorsList[idx], false)
+                                                }, colors = ButtonDefaults.buttonColors(containerColor = SlateDark), shape = RoundedCornerShape(3.dp), modifier = Modifier.height(20.dp).weight(1f), contentPadding = PaddingValues(0.dp)) {
+                                                    Text("Flip-V", fontSize = 7.sp)
+                                                }
+                                            }
+                                        }
+
+                                        // Translation Move
+                                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text("Move & Align Shift:", fontSize = 8.sp, color = UnselectedGrey, modifier = Modifier.align(Alignment.Start))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                IconButton(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = moveVector(vectorsList[idx], -5f, 0f)
+                                                }, modifier = Modifier.size(22.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("◀", fontSize = 8.sp, color = SpindleGold) }
+                                                IconButton(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = centerVector(vectorsList[idx])
+                                                }, modifier = Modifier.size(22.dp).background(PrimaryCyan, RoundedCornerShape(3.dp))) { Text("☉", fontSize = 8.sp, color = Color.Black) }
+                                                IconButton(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = moveVector(vectorsList[idx], 5f, 0f)
+                                                }, modifier = Modifier.size(22.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("▶", fontSize = 8.sp, color = SpindleGold) }
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                IconButton(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = moveVector(vectorsList[idx], 0f, 5f)
+                                                }, modifier = Modifier.size(22.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("▲", fontSize = 8.sp, color = SpindleGold) }
+                                                IconButton(onClick = {
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) vectorsList[idx] = moveVector(vectorsList[idx], 0f, -5f)
+                                                }, modifier = Modifier.size(22.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("▼", fontSize = 8.sp, color = SpindleGold) }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Divider(color = Color(0xFF1E293B))
+
+                                    // Contour Offsetting
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Professional Geometric Offset Contour:", fontSize = 8.sp, color = SpindleGold, fontWeight = FontWeight.Bold)
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            OutlinedTextField(
+                                                value = vectorOffsetDistance,
+                                                onValueChange = { vectorOffsetDistance = it },
+                                                label = { Text("Offset (mm)", fontSize = 7.sp) },
+                                                modifier = Modifier.weight(1f).height(42.dp)
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    val d = vectorOffsetDistance.toFloatOrNull() ?: 3f
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) {
+                                                        val baseVec = vectorsList[idx]
+                                                        val insetPts = offsetClosedPoints(baseVec.rawPoints, -d)
+                                                        if (insetPts.isNotEmpty()) {
+                                                            vectorsList.add(baseVec.copy(id = "v_offset_${System.currentTimeMillis()}", name = "${baseVec.name}_offset_in", rawPoints = insetPts))
+                                                            Toast.makeText(context, "Inward Offset Applied", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = SlateDark), shape = RoundedCornerShape(4.dp), modifier = Modifier.height(28.dp).weight(1f), contentPadding = PaddingValues(0.dp)
+                                            ) { Text("Offset IN", fontSize = 8.sp, color = PrimaryCyan) }
+                                            Button(
+                                                onClick = {
+                                                    val d = vectorOffsetDistance.toFloatOrNull() ?: 3f
+                                                    val idx = vectorsList.indexOfFirst { it.id == activeV.id }
+                                                    if (idx != -1) {
+                                                        val baseVec = vectorsList[idx]
+                                                        val outsetPts = offsetClosedPoints(baseVec.rawPoints, d)
+                                                        if (outsetPts.isNotEmpty()) {
+                                                            vectorsList.add(baseVec.copy(id = "v_offset_${System.currentTimeMillis()}", name = "${baseVec.name}_offset_out", rawPoints = outsetPts))
+                                                            Toast.makeText(context, "Outward Offset Applied", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = SlateDark), shape = RoundedCornerShape(4.dp), modifier = Modifier.height(28.dp).weight(1f), contentPadding = PaddingValues(0.dp)
+                                            ) { Text("Offset OUT", fontSize = 8.sp, color = PrimaryCyan) }
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Button(
+                                            onClick = {
+                                                val duplicated = activeV.copy(id = "v_copy_${System.currentTimeMillis()}", name = "${activeV.name}_copy", cx = activeV.cx + 5f, cy = activeV.cy - 5f, rawPoints = activeV.rawPoints.map { Offset(it.x + 5f, it.y - 5f) })
+                                                vectorsList.add(duplicated)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = SlateDark), modifier = Modifier.height(26.dp).weight(1f)
+                                        ) { Text("Duplicate", fontSize = 8.sp) }
+                                        Button(
+                                            onClick = {
+                                                vectorsList.remove(activeV)
+                                                selectedVectorId = null
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = LaserCrimson), modifier = Modifier.height(26.dp).weight(1f)
+                                        ) { Text("Delete Entity", fontSize = 8.sp, color = Color.White) }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ================== CARD 2C. CAD FILE IMPORT & AUTO-TRACE ==================
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Refresh, null, tint = SpindleGold, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (lang == "id") "2C. IMPOR FILE & TRASING FOTO" else "2C. FILE IMPORT & IMAGE TRACING", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Button(
+                                        onClick = { dxfPickerLauncher.launch("application/octet-stream") },
+                                        colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.height(30.dp).weight(1f),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text(if (lang == "id") "Impor DXF" else "Import DXF", fontSize = 8.sp, color = PrimaryCyan, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { traceImagePickerLauncher.launch("image/*") },
+                                        colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.height(30.dp).weight(1f),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text(if (lang == "id") "Pilih Trase PNG" else "Load Trace PNG", fontSize = 8.sp, color = PrimaryCyan, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                if (importedTraceBitmap != null) {
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF090D1A)),
+                                        border = BorderStroke(0.5.dp, Color(0xFF1E293B)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(if (lang == "id") "PENGATURAN OUTLINE TRASING:" else "PHOTO TRACING CONTROLS:", fontSize = 8.sp, color = SpindleGold, fontWeight = FontWeight.Bold)
+                                            
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("Batas: ${String.format("%.2f", traceThreshold)}", fontSize = 8.sp, color = Color.White)
+                                                Slider(
+                                                    value = traceThreshold,
+                                                    onValueChange = { traceThreshold = it },
+                                                    valueRange = 0.1f..0.9f,
+                                                    modifier = Modifier.weight(1f).height(20.dp)
+                                                )
+                                            }
+
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Button(
+                                                    onClick = {
+                                                        importedTraceBitmap?.let { bmp ->
+                                                            val traced = traceBitmapContours(bmp, traceThreshold)
+                                                            if (traced.isNotEmpty()) {
+                                                                traced.forEachIndexed { idx, p ->
+                                                                    vectorsList.add(
+                                                                        AspireVector(
+                                                                            id = "trace_${System.currentTimeMillis()}_$idx",
+                                                                            type = "Polyline",
+                                                                            name = "Traced Contours $idx",
+                                                                            rawPoints = p
+                                                                        )
+                                                                    )
+                                                                }
+                                                                android.widget.Toast.makeText(context, "${traced.size} outline paths generated!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                android.widget.Toast.makeText(context, "No solid regions found, adjust barrier threshold!", android.widget.Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan),
+                                                    modifier = Modifier.height(26.dp).weight(1f),
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    Text("Trase Outline ke CAD", fontSize = 8.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                                }
+
+                                                Button(
+                                                    onClick = { importedTraceBitmap = null },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = LaserCrimson),
+                                                    modifier = Modifier.height(26.dp).weight(0.4f),
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    Text("Batal", fontSize = 8.sp, color = Color.White)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                             }
+                         }
+
+                        // ================== CARD 3. MODELING 3D RELIEF ==================
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Build, null, tint = SpindleGold, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(if (lang == "id") "3. MODELING 3D RELIEF ORNAMEN" else "3. 3D RELIEF ORNAMENT MODELING", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                }
+
+                                Text(if (lang == "id") "Pilih desain ornamen 3D untuk diukir di papan:" else "Select 3D relief model to carve on surface:", fontSize = 8.sp, color = UnselectedGrey)
+                                
+                                // Selection layout
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf("NONE", "ROSETTE", "EAGLE", "ROSE").forEach { preset ->
+                                        val active = selected3DModelPreset == preset
+                                        Box(
+                                            modifier = Modifier
+                                                .background(if (active) SpindleGold else SlateDark, RoundedCornerShape(3.dp))
+                                                .clickable { selected3DModelPreset = preset }
+                                                .padding(horizontal = 4.dp, vertical = 3.dp).weight(1f),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = when(preset) {
+                                                    "NONE" -> "Flat"
+                                                    "ROSETTE" -> "Rosette"
+                                                    "EAGLE" -> "Eagle"
+                                                    else -> "Rose"
+                                                },
+                                                fontSize = 8.sp,
+                                                color = if (active) Color.Black else Color.White,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Button(
+                                        onClick = { stlPickerLauncher.launch("application/octet-stream") },
+                                        colors = ButtonDefaults.buttonColors(containerColor = SlateDark),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.height(26.dp).weight(1f),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text(if (selected3DModelPreset == "CUSTOM_STL") "STL: loaded" else "Import 3D STL file", fontSize = 8.sp, color = PrimaryCyan)
+                                    }
+                                    
+                                    if (selected3DModelPreset == "CUSTOM_STL") {
+                                        IconButton(onClick = { selected3DModelPreset = "NONE" }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Clear, null, tint = LaserCrimson)
+                                        }
+                                    }
+                                }
+
+                                if (selected3DModelPreset != "NONE") {
+                                    Divider(color = Color(0xFF1E293B), modifier = Modifier.padding(vertical = 2.dp))
+                                    
+                                    Text("Combining Style & Depth:", fontSize = 8.sp, color = UnselectedGrey)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf("ADD", "SUBTRACT").forEach { mode ->
+                                            val active = reliefCombineMode == mode
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (active) PrimaryCyan else SlateDark, RoundedCornerShape(3.dp))
+                                                    .clickable { reliefCombineMode = mode }
+                                                    .padding(horizontal = 4.dp, vertical = 3.dp).weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(if (mode == "ADD") "Timbul (ADD)" else "Ukiran (SUB)", fontSize = 8.sp, color = if (active) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        OutlinedTextField(
+                                            value = reliefZMax,
+                                            onValueChange = { reliefZMax = it },
+                                            label = { Text("Z depth (mm)", fontSize = 7.sp) },
+                                            modifier = Modifier.weight(1f).height(42.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = reliefScale,
+                                            onValueChange = { reliefScale = it },
+                                            label = { Text("Dimens. Scale", fontSize = 7.sp) },
+                                            modifier = Modifier.weight(1f).height(42.dp)
+                                        )
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        OutlinedTextField(
+                                            value = reliefCx,
+                                            onValueChange = { reliefCx = it },
+                                            label = { Text("Shift X Offset", fontSize = 7.sp) },
+                                            modifier = Modifier.weight(1f).height(42.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = reliefCy,
+                                            onValueChange = { reliefCy = it },
+                                            label = { Text("Shift Y Offset", fontSize = 7.sp) },
+                                            modifier = Modifier.weight(1f).height(42.dp)
+                                        )
+                                    }
+
+                                    // --- NEW ADVANCED 3D EDITING PARAMETERS ---
+                                    Divider(color = Color(0xFF1E293B), modifier = Modifier.padding(vertical = 4.dp))
+                                    Text("ADVANCED 3D EDITING FILTERS:", fontSize = 9.sp, color = SpindleGold, fontWeight = FontWeight.Bold)
+                                    
+                                    // 1. Smoothing filter chips
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Smooth Filter:", fontSize = 8.sp, color = Color.White)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            listOf(0 to "Raw", 1 to "Low", 2 to "Med", 3 to "High").forEach { (idx, label) ->
+                                                val active = reliefSmoothingPasses == idx
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(if (active) PrimaryCyan else SlateDark, RoundedCornerShape(2.dp))
+                                                        .clickable { reliefSmoothingPasses = idx }
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(label, fontSize = 7.sp, color = if (active) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 2. Texture noise level chips
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Carving Texture:", fontSize = 8.sp, color = Color.White)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            listOf(0.0f to "Flat", 0.03f to "Sand", 0.06f to "Wood", 0.11f to "Stone").forEach { (valNoi, label) ->
+                                                val active = Math.abs(reliefNoiseRoughness - valNoi) < 0.015f
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(if (active) SpindleGold else SlateDark, RoundedCornerShape(2.dp))
+                                                        .clickable { reliefNoiseRoughness = valNoi }
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(label, fontSize = 7.sp, color = if (active) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 3. Height Gain Contrast slider
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Contrast (Gain): ${String.format("%.1f", reliefContrast)}x", fontSize = 8.sp, color = Color.White)
+                                        Slider(
+                                            value = reliefContrast,
+                                            onValueChange = { reliefContrast = it },
+                                            valueRange = 0.5f..2.0f,
+                                            modifier = Modifier.width(100.dp).height(12.dp)
+                                        )
+                                    }
+
+                                    // 4. Scanning Raster Angle selector
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("3D G-code Angle:", fontSize = 8.sp, color = Color.White)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            listOf("0.0" to "0° Horiz", "45.0" to "45° Diag", "90.0" to "90° Vert").forEach { (angStr, label) ->
+                                                val active = reliefRasterAngle == angStr
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(if (active) PrimaryCyan else SlateDark, RoundedCornerShape(2.dp))
+                                                        .clickable { reliefRasterAngle = angStr }
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(label, fontSize = 7.sp, color = if (active) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Passive Vector inventory scroll-card list
+                        if (vectorsList.isNotEmpty()) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF070B16)),
+                                border = BorderStroke(0.5.dp, Color(0xFF1E293B)),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 110.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("DESIGN VECTOR INVENTORY:", fontSize = 8.sp, color = UnselectedGrey, fontWeight = FontWeight.Bold)
+                                    LazyColumn {
+                                        items(vectorsList.size) { i ->
+                                            val v = vectorsList[i]
+                                            val sel = selectedVectorId == v.id
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 1.dp)
+                                                    .background(if (sel) PrimaryCyan.copy(alpha = 0.15f) else Color.Transparent)
+                                                    .clickable { selectedVectorId = if (sel) null else v.id }
+                                                    .padding(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("[${v.type}] ${v.name}", fontSize = 9.sp, color = if (sel) PrimaryCyan else Color.White)
+                                                IconButton(onClick = { vectorsList.removeAt(i); if (sel) selectedVectorId = null }, modifier = Modifier.size(16.dp)) {
+                                                    Icon(Icons.Default.Delete, null, tint = LaserCrimson, modifier = Modifier.size(10.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (activeWorkspaceTab == "CAM") {
+                        // ================== TOOLPATHS PANEL (CAM) ==================
+                        // 1. CNC Cutter Tool tooling selection
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Build, null, tint = SpindleGold, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("1. ENDMILL CUTTER TOOL SELECTOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SlateDark, RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            selectedBitName = when (selectedBitName) {
+                                                "End Mill 1/8\" (3.175mm)" -> "End Mill 1/4\" (6.35mm)"
+                                                "End Mill 1/4\" (6.35mm)" -> "V-Bit 60° (12.7mm)"
+                                                "V-Bit 60° (12.7mm)" -> "Ball Nose 2mm"
+                                                else -> "End Mill 1/8\" (3.175mm)"
+                                            }
+                                        }
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(selectedBitName, fontSize = 10.sp, color = SpindleGold, fontWeight = FontWeight.Bold)
+                                    Text("(TOGGLE BIT)", fontSize = 8.sp, color = PrimaryCyan)
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    listOf("PROFILE", "POCKET", "DRILL", "3D_ROUGH", "3D_FINISH").forEach { strategy ->
+                                        val active = toolpathType == strategy
+                                        Button(
+                                            onClick = { toolpathType = strategy },
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (active) SpindleGold else SlateDark, contentColor = if (active) Color.Black else Color.White),
+                                            shape = RoundedCornerShape(4.dp), modifier = Modifier.height(26.dp).weight(1f),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                text = when (strategy) {
+                                                    "3D_ROUGH" -> "3D Rgh"
+                                                    "3D_FINISH" -> "3D Fin"
+                                                    else -> strategy
+                                                },
+                                                fontSize = 7.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedTextField(value = cutDepth, onValueChange = { cutDepth = it }, label = { Text("Cut Depth", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                    OutlinedTextField(value = stepDown, onValueChange = { stepDown = it }, label = { Text("Step Down", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedTextField(value = spindleRPM, onValueChange = { spindleRPM = it }, label = { Text("Spindle RPM", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp))
+                                    OutlinedTextField(
+                                        value = viewModel.feedrateCut.toString(),
+                                        onValueChange = { it.toFloatOrNull()?.let { f -> viewModel.feedrateCut = f } },
+                                        label = { Text("Feed mm/min", fontSize = 7.sp) }, modifier = Modifier.weight(1f).height(44.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. Milling Strategies
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("2. MILLING PARAMETERS SETUP", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                
+                                if (toolpathType == "PROFILE") {
+                                    Text("Cutting Side placement:", fontSize = 8.sp, color = UnselectedGrey)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf("OUTSIDE", "INSIDE", "ON").forEach { side ->
+                                            val act = cuttingSide == side
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (act) PrimaryCyan else SlateDark, RoundedCornerShape(3.dp))
+                                                    .clickable { cuttingSide = side }
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp).weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(side, fontSize = 8.sp, color = if (act) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text("Milling Feed Routing Mode:", fontSize = 8.sp, color = UnselectedGrey)
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf("CLIMB", "CONVENTIONAL").forEach { dir ->
+                                        val act = cuttingDirection == dir
+                                        Box(
+                                            modifier = Modifier
+                                                .background(if (act) SpindleGold else SlateDark, RoundedCornerShape(3.dp))
+                                                .clickable { cuttingDirection = dir }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp).weight(1f),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(dir, fontSize = 8.sp, color = if (act) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+
+                                // Interactive Bridges (Tabs)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = enableHoldingTabs, onCheckedChange = { enableHoldingTabs = it }, colors = CheckboxDefaults.colors(checkedColor = PrimaryCyan))
+                                        Text("Holding Tabs (Bridges)", fontSize = 9.sp, color = Color.White)
+                                    }
+                                    if (enableHoldingTabs) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(onClick = { holdingTabsCount = (holdingTabsCount - 1).coerceAtLeast(2) }, modifier = Modifier.size(18.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("-", fontSize = 8.sp, color = Color.White) }
+                                            Text(holdingTabsCount.toString(), fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp))
+                                            IconButton(onClick = { holdingTabsCount = (holdingTabsCount + 1).coerceAtMost(8) }, modifier = Modifier.size(18.dp).background(SlateDark, RoundedCornerShape(3.dp))) { Text("+", fontSize = 8.sp, color = Color.White) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Post Processor Exporter Setup
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("3. EXPORT POST PROCESSOR SETUP", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SpindleGold)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SlateDark, RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            activePostProcessor = when (activePostProcessor) {
+                                                "Vectric WinCNC (*.tap)" -> "GRBL ISO CNC (*.gcode)"
+                                                "GRBL ISO CNC (*.gcode)" -> "LinuxCNC EMC2 (*.ngc)"
+                                                "LinuxCNC EMC2 (*.ngc)" -> "Mach3 Mill G-code (*.txt)"
+                                                else -> "Vectric WinCNC (*.tap)"
+                                            }
+                                        }
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(activePostProcessor, fontSize = 9.sp, color = PrimaryCyan, fontWeight = FontWeight.Bold)
+                                    Text("(CHANGE)", fontSize = 7.sp, color = UnselectedGrey)
+                                }
+
+                                Text("Timber Stock Simulation Selection:", fontSize = 8.sp, color = UnselectedGrey)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    listOf("OAK", "WALNUT", "CHERRY", "PINE", "BRASS", "SLATE").forEach { mat ->
+                                        val mSelect = materialType == mat
+                                        Box(
+                                            modifier = Modifier
+                                                .background(if (mSelect) SpindleGold else SlateDark, RoundedCornerShape(3.dp))
+                                                .clickable { materialType = mat }
+                                                .padding(horizontal = 4.dp, vertical = 3.dp).weight(1f),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(mat, fontSize = 8.sp, color = if (mSelect) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                // Compile trigger
+                                Button(
+                                    onClick = {
+                                        if (vectorsList.isEmpty() && !(toolpathType == "3D_ROUGH" || toolpathType == "3D_FINISH")) {
+                                            Toast.makeText(context, "No vector drawings or 3D relief ornaments found!", Toast.LENGTH_SHORT).show()
+                                            return@Button
+                                        }
+                                        val depthVal = cutDepth.toFloatOrNull() ?: -3f
+                                        val passVal = stepDown.toFloatOrNull() ?: 1f
+                                        val toolDiameter = when {
+                                            selectedBitName.contains("1/4") -> 6.35f
+                                            selectedBitName.contains("1/8") -> 3.175f
+                                            selectedBitName.contains("60°") -> 3.175f
+                                            selectedBitName.contains("2mm") -> 2f
+                                            else -> 3.175f
+                                        }
+
+                                        val rawCompiledPaths = mutableListOf<List<Offset>>()
+                                        if (toolpathType == "3D_ROUGH" || toolpathType == "3D_FINISH") {
+                                            val grid = reliefDepthGrid
+                                            if (grid != null) {
+                                                val w = grid.size
+                                                val h = grid[0].size
+                                                val step = if (toolpathType == "3D_ROUGH") 4 else 2
+                                                val mmRange = 120f
+                                                for (yIdx in 0 until h step step) {
+                                                    val rowPoints = mutableListOf<Offset>()
+                                                    val range = if (yIdx % 2 == 0) (0 until w step step) else ((w - 1) downTo 0 step step)
+                                                    val mmY = -(yIdx - h/2f) * (mmRange / h)
+                                                    range.forEach { xIdx ->
+                                                        val mmX = (xIdx - w/2f) * (mmRange / w)
+                                                        rowPoints.add(Offset(mmX, mmY))
+                                                    }
+                                                    rawCompiledPaths.add(rowPoints)
+                                                }
+                                            }
+                                        } else {
+                                            vectorsList.forEach { v ->
+                                                if (toolpathType == "POCKET") {
+                                                    rawCompiledPaths.addAll(generatePocketPaths(v, toolDiameter))
+                                                } else {
+                                                    rawCompiledPaths.add(v.rawPoints)
+                                                }
+                                            }
+                                        }
+                                        viewModel.activePaths = rawCompiledPaths
+
+                                        val gCodeResult = compileToAspireGCode(
+                                            vectors = vectorsList.toList(),
+                                            depthZ = depthVal,
+                                            passZ = passVal,
+                                            spindleRpm = spindleRPM.toIntOrNull() ?: 16000,
+                                            feedRate = viewModel.feedrateCut,
+                                            plungeRate = viewModel.feedratePlunge,
+                                            safeHeight = viewModel.safeZ,
+                                            toolName = selectedBitName,
+                                            sideMode = cuttingSide,
+                                            toolpathType = toolpathType,
+                                            addHoldingTabs = enableHoldingTabs,
+                                            holdingTabsCount = holdingTabsCount,
+                                            cuttingDirection = cuttingDirection,
+                                            reliefDepthGrid = reliefDepthGrid,
+                                            reliefZMax = reliefZMax.toFloatOrNull() ?: 6.0f
+                                        )
+
+                                        viewModel.currentGCode = gCodeResult
+                                        activeGCodePreview = gCodeResult
+                                        totalGCodeLines = gCodeResult.lines().size
+                                        viewModel.parsedSegments = GCodeParser.parseGCode(gCodeResult)
+                                        viewModel.maxSegmentsToDraw = viewModel.parsedSegments.size
+
+                                        var totalLength = 0f
+                                        rawCompiledPaths.forEach { pts ->
+                                            for (ptIdx in 0 until pts.size - 1) {
+                                                totalLength += Math.hypot((pts[ptIdx+1].x - pts[ptIdx].x).toDouble(), (pts[ptIdx+1].y - pts[ptIdx].y).toDouble()).toFloat()
+                                            }
+                                        }
+                                        val passes = Math.ceil((Math.abs(depthVal)/Math.abs(passVal)).toDouble()).toInt()
+                                        val totalDist = totalLength * passes
+                                        val seconds = ((totalDist / viewModel.feedrateCut) * 60 + passes * 4).toInt()
+                                        estimatedTimeStr = String.format("%02d:%02d", seconds / 60, seconds % 60)
+                                        isCalculated = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SpindleGold),
+                                    shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth().height(38.dp).testTag("btn_calculate_toolpath")
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("CALCULATE CNC TOOLPATHS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ================== PREVIEW CANVAS SPACE (RIGHT) ==================
+            FlexItem(expandedWeight = 0.55f) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Preview Mode Header Tab toggle
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = { selectedTabPreview = "2D_CAD" },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (selectedTabPreview == "2D_CAD") PrimaryCyan else Color.Transparent,
+                                        contentColor = if (selectedTabPreview == "2D_CAD") SlateDark else TextLight
+                                    ),
+                                    shape = RoundedCornerShape(0.dp),
+                                    modifier = Modifier.weight(1f).height(44.dp)
+                                ) {
+                                    Text(if (lang == "id") "2D CAD Tata Letak" else "2D Design Blueprint", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = { selectedTabPreview = "3D_SIMULATION" },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (selectedTabPreview == "3D_SIMULATION") PrimaryCyan else Color.Transparent,
+                                        contentColor = if (selectedTabPreview == "3D_SIMULATION") SlateDark else TextLight
+                                    ),
+                                    shape = RoundedCornerShape(0.dp),
+                                    modifier = Modifier.weight(1f).height(44.dp)
+                                ) {
+                                    Text(if (lang == "id") "3D Simulasi Material" else "3D Metal/Wood Carver", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // MAIN VIEWER PORT AREA
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (selectedTabPreview == "2D_CAD") {
+                                // 2D LAYOUT DESIGN BOARD Blueprint MM Grid
+                                val activePointsList = vectorsList.flatMap { it.rawPoints }
+
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF0C0F17))
+                                        .pointerInput(selectedCADTool) {
+                                            detectTapGestures { offset ->
+                                                if (selectedCADTool == "POLYLINE") {
+                                                    // Map screen pixels to local relative mm coord space
+                                                    val localX = (offset.x - size.width/2f) / (size.width/180f)
+                                                    val localY = -(offset.y - size.height/2f) / (size.height/180f)
+                                                    draftedPolylineNodes.add(Offset(localX, localY))
+                                                }
+                                            }
+                                        }
+                                ) {
+                                    val localW = size.width
+                                    val localH = size.height
+                                    val scaleFactor = localW / 180f // 180mm screen grid density representation
+
+                                    // Render grid lines
+                                    val segments = 18
+                                    val stepSize = localW / segments
+                                    for (i in 0..segments) {
+                                        val lineVal = i * stepSize
+                                        // X-grid
+                                        drawLine(
+                                            color = Color(0xFF1E283A),
+                                            start = Offset(lineVal, 0f),
+                                            end = Offset(lineVal, localH),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                        // Y-grid
+                                        drawLine(
+                                            color = Color(0xFF1E283A),
+                                            start = Offset(0f, lineVal),
+                                            end = Offset(localW, lineVal),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                    }
+
+                                    // Major Coordinate Axis Centred
+                                    drawLine(
+                                        color = Color(0xFF37474F),
+                                        start = Offset(localW/2f, 0f),
+                                        end = Offset(localW/2f, localH),
+                                        strokeWidth = 2.dp.toPx()
+                                    )
+                                    drawLine(
+                                        color = Color(0xFF37474F),
+                                        start = Offset(0f, localH/2f),
+                                        end = Offset(localW, localH/2f),
+                                        strokeWidth = 2.dp.toPx()
+                                    )
+
+                                    // Draw actual vector boundaries
+                                    vectorsList.forEach { v ->
+                                        val pts = v.rawPoints
+                                        if (pts.isNotEmpty()) {
+                                            val strokeColor = if (selectedVectorId == v.id) SpindleGold else Color(0xFF00E5FF)
+                                            val strokeWVal = if (selectedVectorId == v.id) 3.dp.toPx() else 1.5.dp.toPx()
+                                            
+                                            // Render loop lines
+                                            for (idx in 0 until pts.size - 1) {
+                                                val startS = Offset(localW/2f + pts[idx].x * scaleFactor, localH/2f - pts[idx].y * scaleFactor)
+                                                val endS = Offset(localW/2f + pts[idx+1].x * scaleFactor, localH/2f - pts[idx+1].y * scaleFactor)
+                                                drawLine(color = strokeColor, start = startS, end = endS, strokeWidth = strokeWVal)
+                                            }
+
+                                            // Draw individual coordinate endpoints / nodes
+                                            pts.forEach { pt ->
+                                                drawCircle(
+                                                    color = Color.White,
+                                                    radius = 2.5.dp.toPx(),
+                                                    center = Offset(localW/2f + pt.x * scaleFactor, localH/2f - pt.y * scaleFactor)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Draw temporary/active polyline nodes under construction
+                                    if (selectedCADTool == "POLYLINE" && draftedPolylineNodes.isNotEmpty()) {
+                                        for (idx in 0 until draftedPolylineNodes.size - 1) {
+                                            val startS = Offset(localW/2f + draftedPolylineNodes[idx].x * scaleFactor, localH/2f - draftedPolylineNodes[idx].y * scaleFactor)
+                                            val endS = Offset(localW/2f + draftedPolylineNodes[idx+1].x * scaleFactor, localH/2f - draftedPolylineNodes[idx+1].y * scaleFactor)
+                                            drawLine(
+                                                color = Color(0xFF00E676),
+                                                start = startS,
+                                                end = endS,
+                                                strokeWidth = 2.dp.toPx(),
+                                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f))
+                                            )
+                                        }
+                                        draftedPolylineNodes.forEach { pt ->
+                                            drawCircle(
+                                                color = Color(0xFF00E676),
+                                                radius = 3.5.dp.toPx(),
+                                                center = Offset(localW/2f + pt.x * scaleFactor, localH/2f - pt.y * scaleFactor)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Interactive HUD Badge
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(10.dp)
+                                        .background(Color(0xFF0F111A).copy(alpha = 0.85f), RoundedCornerShape(20.dp))
+                                        .border(0.5.dp, BorderCyan.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (selectedCADTool == "POLYLINE") {
+                                            if (lang == "id") "KLIK KANVAS UNTUK BUAT SEGMEN" else "CLICK Blueprint BOARD TO ENCODE NODES"
+                                        } else {
+                                            if (lang == "id") "Blueprint CAD: ${vectorsList.size} Objek Aktif" else "CAD Blueprint: ${vectorsList.size} Active Vectors"
+                                        },
+                                        color = PrimaryCyan,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            } else {
+                                // 3D PHOTOREALISTIC MATERIAL WOOD CARVER PREVIEW
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    val shadedBitmapState = remember(selected3DModelPreset, materialType, reliefZMax, reliefScale, reliefCombineMode, reliefCx, reliefCy, reliefDepthGrid) {
+                                        val grid = reliefDepthGrid
+                                        if (grid != null) {
+                                            generateReliefShadedBitmap(grid, materialType).asImageBitmap()
+                                        } else {
+                                            null
+                                        }
+                                    }
+                                    // Custom drawBehind wood grain gradient canvas
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val woodWidth = size.width
+                                        val woodHeight = size.height
+                                        val scaleFactor = woodWidth / 180f
+
+                                        // 1. Draw rich background gradient based on selected material type
+                                        val materialGradient = when (materialType) {
+                                            "OAK" -> Brush.verticalGradient(
+                                                colors = listOf(Color(0xFFD7A15C), Color(0xFFBC8F5F), Color(0xFFD7A15C))
+                                            )
+                                            "CHERRY" -> Brush.verticalGradient(
+                                                colors = listOf(Color(0xFF8B2C19), Color(0xFF5B1006), Color(0xFF8B2C19))
+                                            )
+                                            "PINE" -> Brush.verticalGradient(
+                                                colors = listOf(Color(0xFFEEDD92), Color(0xFFD7C172), Color(0xFFEEDD92))
+                                            )
+                                            "BRASS" -> Brush.verticalGradient(
+                                                colors = listOf(Color(0xFFC5A03A), Color(0xFFDEC36A), Color(0xFF8B6C12))
+                                            )
+                                            "SLATE" -> Brush.verticalGradient(
+                                                colors = listOf(Color(0xFF353C42), Color(0xFF1E2226), Color(0xFF353C42))
+                                            )
+                                            else -> Brush.verticalGradient( // "WALNUT" default
+                                                colors = listOf(Color(0xFF5A3125), Color(0xFF3B1E16), Color(0xFF5A3125))
+                                            )
+                                        }
+                                        drawRect(brush = materialGradient)
+
+                                        // 1B. Custom photorealistic knot overlays for Knotty Pine material
+                                        if (materialType == "PINE") {
+                                            drawCircle(
+                                                color = Color(0xFF5A3125).copy(alpha = 0.25f),
+                                                radius = 16.dp.toPx(),
+                                                center = Offset(woodWidth * 0.25f, woodHeight * 0.35f)
+                                            )
+                                            drawCircle(
+                                                color = Color(0xFF5A3125).copy(alpha = 0.15f),
+                                                radius = 32.dp.toPx(),
+                                                center = Offset(woodWidth * 0.25f, woodHeight * 0.35f),
+                                                style = Stroke(width = 2.dp.toPx())
+                                            )
+                                            drawCircle(
+                                                color = Color(0xFF5A3125).copy(alpha = 0.25f),
+                                                radius = 12.dp.toPx(),
+                                                center = Offset(woodWidth * 0.75f, woodHeight * 0.7f)
+                                            )
+                                            drawCircle(
+                                                color = Color(0xFF5A3125).copy(alpha = 0.15f),
+                                                radius = 24.dp.toPx(),
+                                                center = Offset(woodWidth * 0.75f, woodHeight * 0.7f),
+                                                style = Stroke(width = 2.dp.toPx())
+                                            )
+                                        }
+
+                                        // 1C. Linear brush highlights for reflective Brass Metal
+                                        if (materialType == "BRASS") {
+                                            drawLine(
+                                                color = Color.White.copy(alpha = 0.2f),
+                                                start = Offset(0f, 0f),
+                                                end = Offset(woodWidth, woodHeight),
+                                                strokeWidth = 32.dp.toPx()
+                                            )
+                                            drawLine(
+                                                color = Color.White.copy(alpha = 0.12f),
+                                                start = Offset(woodWidth * 0.2f, 0f),
+                                                end = Offset(woodWidth, woodHeight * 0.8f),
+                                                strokeWidth = 14.dp.toPx()
+                                            )
+                                        }
+
+                                        // 2. Simulated radial grain fibers (Draw growth rings for organic wood material)
+                                        if (materialType != "BRASS" && materialType != "SLATE") {
+                                            val radialFiberColor = when (materialType) {
+                                                "OAK" -> Color(0xFF8B5A2B).copy(alpha = 0.08f)
+                                                "CHERRY" -> Color(0xFF4A1006).copy(alpha = 0.08f)
+                                                "PINE" -> Color(0xFF9E8E56).copy(alpha = 0.1f)
+                                                else -> Color(0xFFC48A73).copy(alpha = 0.05f) // walnut defaults
+                                            }
+                                            for (i in 0..16) {
+                                                val factor = i * (woodHeight / 16f)
+                                                val graphPath = Path().apply {
+                                                    moveTo(0f, factor)
+                                                    for (stepX in 0..10) {
+                                                        val xVal = stepX * (woodWidth / 10f)
+                                                        val yVal = factor + Math.sin(((stepX * 0.5f) + i).toDouble()).toFloat() * 12f
+                                                        lineTo(xVal, yVal)
+                                                    }
+                                                }
+                                                drawPath(
+                                                    path = graphPath,
+                                                    color = radialFiberColor,
+                                                    style = Stroke(width = 3.dp.toPx())
+                                                )
+                                            }
+                                        }
+
+                                        // Draw material borders to create 3D frame depth
+                                        drawRect(
+                                            color = Color.Black.copy(alpha = 0.35f),
+                                            style = Stroke(width = 4.dp.toPx())
+                                        )
+
+                                        // 2B. Draw 3D Shaded Relief Heightmap Overlay
+                                        shadedBitmapState?.let { imgBmp ->
+                                             drawImage(
+                                                 image = imgBmp,
+                                                 dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+                                                 alpha = 0.95f
+                                             )
+                                        }
+
+                                        // 3. Render carved trenches
+                                        val trenchColor = when (materialType) {
+                                            "OAK" -> Color(0xFF5A3125)
+                                            "CHERRY" -> Color(0xFF3A0B02)
+                                            "PINE" -> Color(0xFF6B4522)
+                                            "BRASS" -> Color(0xFF3B2F04)
+                                            "SLATE" -> Color(0xFF0F1115)
+                                            else -> Color(0xFF1E0E0A)
+                                        }
+                                        val highlightColor = when (materialType) {
+                                            "BRASS" -> Color(0xFFFDEB9E).copy(alpha = 0.7f)
+                                            "SLATE" -> Color(0xFF5F6E79).copy(alpha = 0.5f)
+                                            else -> Color(0xFFFFECC4).copy(alpha = 0.6f)
+                                        }
+
+                                        val totalPointsToCarve = vectorsList.flatMap { v ->
+                                            if (toolpathType == "POCKET") {
+                                                val toolDiameter = when {
+                                                    selectedBitName.contains("1/4") -> 6.35f
+                                                    selectedBitName.contains("1/8") -> 3.175f
+                                                    selectedBitName.contains("60°") -> 3.175f
+                                                    selectedBitName.contains("2mm") -> 2.0f
+                                                    else -> 3.175f
+                                                }
+                                                generatePocketPaths(v, toolDiameter).flatMap { it }
+                                            } else {
+                                                v.rawPoints
+                                            }
+                                        }
+
+                                        if (totalPointsToCarve.isNotEmpty()) {
+                                            val pointsToDrawCount = if (isSimPlaying) {
+                                                (totalPointsToCarve.size * simTimeProg).toInt().coerceIn(0, totalPointsToCarve.size)
+                                            } else {
+                                                totalPointsToCarve.size
+                                            }
+
+                                            // Compile simulated blocks of lines
+                                            vectorsList.forEach { v ->
+                                                val pathsToRender = if (toolpathType == "POCKET") {
+                                                    val toolDiameter = when {
+                                                        selectedBitName.contains("1/4") -> 6.35f
+                                                        selectedBitName.contains("1/8") -> 3.175f
+                                                        selectedBitName.contains("60°") -> 3.175f
+                                                        selectedBitName.contains("2mm") -> 2.0f
+                                                        else -> 3.175f
+                                                    }
+                                                    generatePocketPaths(v, toolDiameter)
+                                                } else {
+                                                    listOf(v.rawPoints)
+                                                }
+
+                                                var renderedCount = 0
+                                                pathsToRender.forEach { pts ->
+                                                    if (pts.isNotEmpty()) {
+                                                        for (idx in 0 until pts.size - 1) {
+                                                            if (renderedCount <= pointsToDrawCount) {
+                                                                val startS = Offset(woodWidth/2f + pts[idx].x * scaleFactor, woodHeight/2f - pts[idx].y * scaleFactor)
+                                                                val endS = Offset(woodWidth/2f + pts[idx+1].x * scaleFactor, woodHeight/2f - pts[idx+1].y * scaleFactor)
+                                                                
+                                                                // Underlay depth offset carve shadows
+                                                                drawLine(
+                                                                    color = trenchColor.copy(alpha = 0.85f),
+                                                                    start = Offset(startS.x + 1f, startS.y + 1f),
+                                                                    end = Offset(endS.x + 1f, endS.y + 1f),
+                                                                    strokeWidth = 5.dp.toPx()
+                                                                )
+
+                                                                // Main engraving trench
+                                                                drawLine(
+                                                                    color = when (materialType) {
+                                                                        "OAK" -> Color(0xFF9E7036)
+                                                                        "CHERRY" -> Color(0xFFC04C33)
+                                                                        "PINE" -> Color(0xFFC2AD71)
+                                                                        "BRASS" -> Color(0xFFD3B250)
+                                                                        "SLATE" -> Color(0xFF24292C)
+                                                                        else -> Color(0xFFCCA276) // walnut inner wood defaults
+                                                                    },
+                                                                    start = startS,
+                                                                    end = endS,
+                                                                    strokeWidth = if (toolpathType == "PROFILE") 3.dp.toPx() else 2.5.dp.toPx()
+                                                                )
+
+                                                                // Upper glowing tool highlight relief rim
+                                                                drawLine(
+                                                                    color = highlightColor,
+                                                                    start = Offset(startS.x - 0.5f, startS.y - 0.5f),
+                                                                    end = Offset(endS.x - 0.5f, endS.y - 0.5f),
+                                                                    strokeWidth = 1.dp.toPx()
+                                                                )
+                                                            }
+                                                            renderedCount++
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // 4. Moving Spindle Tool Overlay Animation (Spinning yellow coordinate tip!)
+                                            if (isSimPlaying && pointsToDrawCount > 0 && pointsToDrawCount < totalPointsToCarve.size) {
+                                                val activeCenterPt = totalPointsToCarve[pointsToDrawCount]
+                                                val activeScreenPos = Offset(woodWidth/2f + activeCenterPt.x * scaleFactor, woodHeight/2f - activeCenterPt.y * scaleFactor)
+
+                                                // Moving router tip core
+                                                drawCircle(
+                                                    color = SpindleGold,
+                                                    radius = 8.dp.toPx(),
+                                                    center = activeScreenPos
+                                                )
+                                                drawCircle(
+                                                    color = Color.White,
+                                                    radius = 4.dp.toPx(),
+                                                    center = activeScreenPos
+                                                )
+                                                // Outer cutting spindle visual circle aura
+                                                drawCircle(
+                                                    color = Color.White.copy(alpha = 0.4f),
+                                                    radius = 16.dp.toPx(),
+                                                    center = activeScreenPos,
+                                                    style = Stroke(width = 1.5.dp.toPx())
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Material Simulation controller bar overlay
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(14.dp)
+                                            .background(Color(0xFF0F111A).copy(alpha = 0.9f), RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = { isSimPlaying = !isSimPlaying },
+                                            colors = ButtonDefaults.buttonColors(containerColor = SpindleGold),
+                                            shape = RoundedCornerShape(4.dp),
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isSimPlaying) Icons.Filled.Warning else Icons.Filled.PlayArrow,
+                                                contentDescription = "Simulate",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(if (isSimPlaying) "Pause" else "PLAY SIM", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        LinearProgressIndicator(
+                                            progress = { simTimeProg },
+                                            modifier = Modifier
+                                                .width(100.dp)
+                                                .height(5.dp),
+                                            color = SpindleGold,
+                                            trackColor = Color(0xFF1E283A)
+                                        )
+
+                                        IconButton(
+                                            onClick = {
+                                                isSimPlaying = false
+                                                simTimeProg = 0f
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, "Reset", tint = Color.White, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Window 4: Live Results and G-Code Compilation Terminal panel
+                    if (isCalculated) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CardDark),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Check, "Solved", tint = Color(0xFF00E676), modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (lang == "id") "HASIL JALUR VEKTOR JALUR ALAT" else "ASPIRE COMPLIANT SOLVER OUTPUT",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF00E676)
+                                        )
+                                    }
+                                    Text(
+                                        text = "EST: $estimatedTimeStr",
+                                        color = SpindleGold,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SlateDark, RoundedCornerShape(4.dp))
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Post: GRBL/FluidNC-Compliant\nLine Count: $totalGCodeLines G-lines\nBit Diameter: $selectedBitName",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextLight,
+                                        lineHeight = 12.sp
+                                    )
+                                    Button(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                            val clip = android.content.ClipData.newPlainText("CNC G-Code", activeGCodePreview)
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, if (lang == "id") "G-code tersalin!" else "G-Code Copied!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.height(28.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp)
+                                    ) {
+                                        Text("COPY G-CODE", fontSize = 9.sp, color = SlateDark, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                // Interactive Gcode editor preview
+                                OutlinedTextField(
+                                    value = activeGCodePreview,
+                                    onValueChange = {
+                                        activeGCodePreview = it
+                                        viewModel.currentGCode = it
+                                    },
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF81C784)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(130.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// REAL VECTRIC ASPIRE CORE MATHEMATICAL & CAM ENGINE HELPERS
+// =========================================================================
+
+object CNCHummer {
+    private var audioTrack: android.media.AudioTrack? = null
+    private var isPlaying = false
+
+    fun startHum(frequency: Float = 180f) {
+        if (isPlaying) return
+        isPlaying = true
+        Thread {
+            try {
+                val sampleRate = 8000
+                val numSamples = 1200
+                val bufferSize = android.media.AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    android.media.AudioFormat.CHANNEL_OUT_MONO,
+                    android.media.AudioFormat.ENCODING_PCM_16BIT
+                )
+                val track = android.media.AudioTrack(
+                    android.media.AudioManager.STREAM_MUSIC,
+                    sampleRate,
+                    android.media.AudioFormat.CHANNEL_OUT_MONO,
+                    android.media.AudioFormat.ENCODING_PCM_16BIT,
+                    bufferSize.coerceAtLeast(numSamples * 2),
+                    android.media.AudioTrack.MODE_STREAM
+                )
+                audioTrack = track
+                track.play()
+
+                val samples = ShortArray(numSamples)
+                var angle = 0.0
+                while (isPlaying) {
+                    for (i in 0 until numSamples) {
+                        // Aggressive mechanical router cutting wave (combining fundamental + tooth click high frequency)
+                        val waveValue = 0.4 * Math.sin(angle) + 0.15 * Math.sin(angle * 2.1) + 0.1 * Math.sin(angle * 5.0)
+                        samples[i] = (waveValue * Short.MAX_VALUE).toInt().toShort()
+                        angle += 2 * Math.PI * frequency / sampleRate
+                    }
+                    track.write(samples, 0, numSamples)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    fun stopHum() {
+        isPlaying = false
+        try {
+            audioTrack?.apply {
+                stop()
+                release()
+            }
+        } catch (e: Exception) {
+            // silent catch
+        }
+        audioTrack = null
+    }
+}
+
+fun getCentroid(points: List<Offset>): Offset {
+    if (points.isEmpty()) return Offset(0f, 0f)
+    var sumX = 0f
+    var sumY = 0f
+    points.forEach {
+        sumX += it.x
+        sumY += it.y
+    }
+    return Offset(sumX / points.size, sumY / points.size)
+}
+
+fun getBounds(points: List<Offset>): Bounds {
+    if (points.isEmpty()) return Bounds(0f, 0f, 0f, 0f)
+    var minX = Float.MAX_VALUE
+    var maxX = -Float.MAX_VALUE
+    var minY = Float.MAX_VALUE
+    var maxY = -Float.MAX_VALUE
+    points.forEach {
+        if (it.x < minX) minX = it.x
+        if (it.x > maxX) maxX = it.x
+        if (it.y < minY) minY = it.y
+        if (it.y > maxY) maxY = it.y
+    }
+    return Bounds(minX, maxX, minY, maxY)
+}
+
+data class Bounds(val minX: Float, val maxX: Float, val minY: Float, val maxY: Float)
+
+fun offsetClosedPoints(points: List<Offset>, offsetVal: Float): List<Offset> {
+    if (points.size < 3) return points
+    val result = mutableListOf<Offset>()
+    val n = points.size
+    for (i in 0 until n) {
+        val prev = points[(i - 1 + n) % n]
+        val curr = points[i]
+        val next = points[(i + 1) % n]
+
+        val dx1 = curr.x - prev.x
+        val dy1 = curr.y - prev.y
+        val len1 = Math.hypot(dx1.toDouble(), dy1.toDouble()).toFloat()
+
+        val dx2 = next.x - curr.x
+        val dy2 = next.y - curr.y
+        val len2 = Math.hypot(dx2.toDouble(), dy2.toDouble()).toFloat()
+
+        if (len1 < 0.01f || len2 < 0.01f) {
+            result.add(curr)
+            continue
+        }
+
+        // Inside/Outside bi-sector math normals
+        val nx1 = -dy1 / len1
+        val ny1 = dx1 / len1
+        val nx2 = -dy2 / len2
+        val ny2 = dx2 / len2
+
+        val bisX = (nx1 + nx2) / 2f
+        val bisY = (ny1 + ny2) / 2f
+        val bisLen = Math.hypot(bisX.toDouble(), bisY.toDouble()).toFloat()
+
+        if (bisLen > 0.01f) {
+            val factor = offsetVal / bisLen
+            result.add(Offset(curr.x + bisX * factor, curr.y + bisY * factor))
+        } else {
+            result.add(Offset(curr.x + nx1 * offsetVal, curr.y + ny1 * offsetVal))
+        }
+    }
+    if (result.isNotEmpty()) result.add(result.first()) // close loop
+    return result
+}
+
+fun generatePocketClearPoints(v: AspireVector, stepover: Float): List<List<Offset>> {
+    val bounds = getBounds(v.rawPoints)
+    val h = bounds.maxY - bounds.minY
+    val w = bounds.maxX - bounds.minX
+    if (h < 1f || w < 1f || stepover <= 0.1f) return listOf(v.rawPoints)
+
+    val paths = mutableListOf<List<Offset>>()
+    var y = bounds.minY + stepover * 0.5f
+    var leftToRight = true
+    while (y < bounds.maxY) {
+        // High fidelity raster clipping limits based on standard geometries
+        var minXAtY = bounds.minX + w * 0.1f
+        var maxXAtY = bounds.maxX - w * 0.1f
+
+        if (v.type == "Circle" || v.type == "Inner Circle") {
+            val r = v.radius
+            val dy = Math.abs(y - v.cy)
+            if (dy < r) {
+                val dx = Math.sqrt((r * r - dy * dy).toDouble()).toFloat()
+                minXAtY = v.cx - dx
+                maxXAtY = v.cx + dx
+            }
+        } else if (v.type == "Rectangle" || v.type == "Outer Border") {
+            minXAtY = v.cx - v.width / 2f + v.cornerRadius * 0.2f
+            maxXAtY = v.cx + v.width / 2f - v.cornerRadius * 0.2f
+        } else if (v.type == "Oval" || v.type == "Ellipse") {
+            val rx = v.width / 2f
+            val ry = v.height / 2f
+            val dy = Math.abs(y - v.cy)
+            if (dy < ry) {
+                val factor = Math.sqrt((1f - (dy * dy) / (ry * ry)).toDouble()).toFloat()
+                val dx = rx * factor
+                minXAtY = v.cx - dx
+                maxXAtY = v.cx + dx
+            }
+        } else {
+            // Linear ratio taper interpolation for Polygons / Stars layout
+            val cy = (bounds.minY + bounds.maxY) / 2f
+            val ratio = (1f - (Math.abs(y - cy) / (h / 2f)) * 0.6f).coerceIn(0.1f, 1f)
+            minXAtY = v.cx - (w / 2f) * ratio
+            maxXAtY = v.cx + (w / 2f) * ratio
+        }
+
+        if (minXAtY + 0.1f < maxXAtY) {
+            val line = if (leftToRight) {
+                listOf(Offset(minXAtY, y), Offset(maxXAtY, y))
+            } else {
+                listOf(Offset(maxXAtY, y), Offset(minXAtY, y))
+            }
+            paths.add(line)
+        }
+        leftToRight = !leftToRight
+        y += stepover
+    }
+
+    if (paths.isEmpty()) return listOf(v.rawPoints)
+    return paths
+}
+
+private fun createCirclePoints(cx: Float, cy: Float, radius: Float): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val segments = 48
+    for (i in 0..segments) {
+        val angle = (2.0 * Math.PI * i) / segments
+        val x = cx + radius * Math.cos(angle).toFloat()
+        val y = cy + radius * Math.sin(angle).toFloat()
+        points.add(Offset(x, y))
+    }
+    return points
+}
+
+private fun createOvalPoints(cx: Float, cy: Float, width: Float, height: Float): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val segments = 40
+    val rx = width / 2f
+    val ry = height / 2f
+    for (i in 0..segments) {
+        val angle = (2.0 * Math.PI * i) / segments
+        val x = cx + rx * Math.cos(angle).toFloat()
+        val y = cy + ry * Math.sin(angle).toFloat()
+        points.add(Offset(x, y))
+    }
+    return points
+}
+
+private fun createArcPoints(x1: Float, y1: Float, x2: Float, y2: Float, elevation: Float): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val segments = 20
+    val midX = (x1 + x2) / 2f
+    val midY = (y1 + y2) / 2f
+    val dx = x2 - x1
+    val dy = y2 - y1
+    val len = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+    if (len < 0.1f) {
+        return listOf(Offset(x1, y1), Offset(x2, y2))
+    }
+    // Perpendicular norm
+    val px = -dy / len
+    val py = dx / len
+    val apexX = midX + px * elevation
+    val apexY = midY + py * elevation
+
+    // Quadratic interpolation bezier
+    for (i in 0..segments) {
+        val t = i.toFloat() / segments
+        val mt = 1f - t
+        val x = mt * mt * x1 + 2 * mt * t * apexX + t * t * x2
+        val y = mt * mt * y1 + 2 * mt * t * apexY + t * t * y2
+        points.add(Offset(x, y))
+    }
+    return points
+}
+
+private fun createRectanglePoints(cx: Float, cy: Float, w: Float, h: Float, cr: Float): List<Offset> {
+    return createRectanglePointsAdvanced(cx, cy, w, h, "ROUNDED", cr, 1.5f)
+}
+
+private fun createRectanglePointsAdvanced(
+    cx: Float, cy: Float, w: Float, h: Float,
+    cornerType: String, cornerRadius: Float, bitRadius: Float
+): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val halfW = w / 2f
+    val halfH = h / 2f
+
+    if (cornerType == "SQUARE" || (cornerType == "ROUNDED" && cornerRadius <= 0.1f)) {
+        points.add(Offset(cx - halfW, cy - halfH))
+        points.add(Offset(cx + halfW, cy - halfH))
+        points.add(Offset(cx + halfW, cy + halfH))
+        points.add(Offset(cx - halfW, cy + halfH))
+        points.add(Offset(cx - halfW, cy - halfH))
+    } else if (cornerType == "ROUNDED") {
+        val rVal = cornerRadius.coerceAtMost(halfW).coerceAtMost(halfH)
+        val arcSegs = 10
+        // Rounded corners
+        for (i in 0..arcSegs) {
+            val a = Math.PI + (i * Math.PI / 2.0 / arcSegs)
+            points.add(Offset((cx - halfW + rVal) + rVal * Math.cos(a).toFloat(), (cy - halfH + rVal) + rVal * Math.sin(a).toFloat()))
+        }
+        for (i in 0..arcSegs) {
+            val a = 1.5 * Math.PI + (i * Math.PI / 2.0 / arcSegs)
+            points.add(Offset((cx + halfW - rVal) + rVal * Math.cos(a).toFloat(), (cy - halfH + rVal) + rVal * Math.sin(a).toFloat()))
+        }
+        for (i in 0..arcSegs) {
+            val a = 0.0 + (i * Math.PI / 2.0 / arcSegs)
+            points.add(Offset((cx + halfW - rVal) + rVal * Math.cos(a).toFloat(), (cy + halfH - rVal) + rVal * Math.sin(a).toFloat()))
+        }
+        for (i in 0..arcSegs) {
+            val a = 0.5 * Math.PI + (i * Math.PI / 2.0 / arcSegs)
+            points.add(Offset((cx - halfW + rVal) + rVal * Math.cos(a).toFloat(), (cy + halfH - rVal) + rVal * Math.sin(a).toFloat()))
+        }
+        points.add(points.first())
+    } else if (cornerType == "DOGBONE") {
+        val r = bitRadius.coerceAtMost(halfW * 0.4f).coerceAtMost(halfH * 0.4f)
+        val d = r * 0.707f // diagonal projection
+
+        // Bottom Left corner notch
+        points.add(Offset(cx - halfW, cy - halfH + r * 1.5f))
+        points.add(Offset(cx - halfW - d, cy - halfH - d))
+        points.add(Offset(cx - halfW + r * 1.5f, cy - halfH))
+
+        // Bottom Right corner notch
+        points.add(Offset(cx + halfW - r * 1.5f, cy - halfH))
+        points.add(Offset(cx + halfW + d, cy - halfH - d))
+        points.add(Offset(cx + halfW, cy - halfH + r * 1.5f))
+
+        // Top Right corner notch
+        points.add(Offset(cx + halfW, cy + halfH - r * 1.5f))
+        points.add(Offset(cx + halfW + d, cy + halfH + d))
+        points.add(Offset(cx + halfW - r * 1.5f, cy + halfH))
+
+        // Top Left corner notch
+        points.add(Offset(cx - halfW + r * 1.5f, cy + halfH))
+        points.add(Offset(cx - halfW - d, cy + halfH + d))
+        points.add(Offset(cx - halfW, cy + halfH - r * 1.5f))
+
+        points.add(points.first())
+    } else { // "TBONE"
+        val r = bitRadius.coerceAtMost(halfW * 0.4f).coerceAtMost(halfH * 0.4f)
+
+        // Bottom Left T-bone relief cut
+        points.add(Offset(cx - halfW, cy - halfH + r * 1.5f))
+        points.add(Offset(cx - halfW - r, cy - halfH))
+        points.add(Offset(cx - halfW + r * 1.5f, cy - halfH))
+
+        // Bottom Right
+        points.add(Offset(cx + halfW - r * 1.5f, cy - halfH))
+        points.add(Offset(cx + halfW + r, cy - halfH))
+        points.add(Offset(cx + halfW, cy - halfH + r * 1.5f))
+
+        // Top Right
+        points.add(Offset(cx + halfW, cy + halfH - r * 1.5f))
+        points.add(Offset(cx + halfW + r, cy + halfH))
+        points.add(Offset(cx + halfW - r * 1.5f, cy + halfH))
+
+        // Top Left
+        points.add(Offset(cx - halfW + r * 1.5f, cy + halfH))
+        points.add(Offset(cx - halfW - r, cy + halfH))
+        points.add(Offset(cx - halfW, cy + halfH - r * 1.5f))
+
+        points.add(points.first())
+    }
+    return points
+}
+
+private fun createPolygonPoints(cx: Float, cy: Float, radius: Float, sides: Int): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val sCount = sides.coerceAtLeast(3)
+    for (i in 0..sCount) {
+        val angle = (2.0 * Math.PI * i) / sCount
+        val x = cx + radius * Math.cos(angle).toFloat()
+        val y = cy + radius * Math.sin(angle).toFloat()
+        points.add(Offset(x, y))
+    }
+    return points
+}
+
+private fun createStarPoints(cx: Float, cy: Float, pointsCount: Int, rOuter: Float, rInner: Float): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val totalSteps = pointsCount * 2
+    for (i in 0..totalSteps) {
+        val angle = (i * Math.PI / pointsCount) - (Math.PI / 2.0)
+        val r = if (i % 2 == 0) rOuter else rInner
+        val x = cx + r * Math.cos(angle).toFloat()
+        val y = cy + r * Math.sin(angle).toFloat()
+        points.add(Offset(x, y))
+    }
+    return points
+}
+
+private fun createTextVectorPoints(text: String, startX: Float, startY: Float, height: Float): List<Offset> {
+    val points = mutableListOf<Offset>()
+    var cursorX = startX
+    text.forEach { char ->
+        val glyphPoints = when (char.uppercaseChar()) {
+            'C' -> listOf(Offset(1f, 1f), Offset(0f, 1f), Offset(0f, 0f), Offset(1f, 0f))
+            'N' -> listOf(Offset(0f, 0f), Offset(0f, 1f), Offset(1f, 0f), Offset(1f, 1f))
+            'V' -> listOf(Offset(0f, 1f), Offset(0.5f, 0f), Offset(1f, 1f))
+            'E' -> listOf(Offset(1f, 1f), Offset(0f, 1f), Offset(0f, 0.5f), Offset(0.8f, 0.5f), Offset(0f, 0.5f), Offset(0f, 0f), Offset(1f, 0f))
+            'T' -> listOf(Offset(0f, 1f), Offset(1f, 1f), Offset(0.5f, 1f), Offset(0.5f, 0f))
+            'R' -> listOf(Offset(0f, 0f), Offset(0f, 1f), Offset(1f, 1f), Offset(1f, 0.5f), Offset(0f, 0.5f), Offset(1f, 0f))
+            'I' -> listOf(Offset(0f, 1f), Offset(1f, 1f), Offset(0.5f, 1f), Offset(0.5f, 0f), Offset(0f, 0f), Offset(1f, 0f))
+            'A' -> listOf(Offset(0f, 0f), Offset(0.5f, 1f), Offset(1f, 0f), Offset(0.8f, 0.4f), Offset(0.2f, 0.4f))
+            'S' -> listOf(Offset(1f, 1f), Offset(0f, 1f), Offset(0f, 0.5f), Offset(1f, 0.5f), Offset(1f, 0f), Offset(0f, 0f))
+            'P' -> listOf(Offset(0f, 0f), Offset(0f, 1f), Offset(1f, 1f), Offset(1f, 0.5f), Offset(0f, 0.5f))
+            ' ' -> emptyList()
+            else -> listOf(Offset(0f, 0f), Offset(1f, 0f), Offset(1f, 1f), Offset(0f, 1f), Offset(0f, 0f))
+        }
+        if (glyphPoints.isNotEmpty()) {
+            glyphPoints.forEach { pt ->
+                points.add(Offset(cursorX + pt.x * height * 0.65f, startY + pt.y * height))
+            }
+        }
+        cursorX += height * 0.85f
+    }
+    return points
+}
+
+private fun scaleVector(vector: AspireVector, scale: Float): AspireVector {
+    val newPoints = vector.rawPoints.map { pt ->
+        val dx = pt.x - vector.cx
+        val dy = pt.y - vector.cy
+        Offset(vector.cx + dx * scale, vector.cy + dy * scale)
+    }
+    return vector.copy(
+        radius = vector.radius * scale,
+        width = vector.width * scale,
+        height = vector.height * scale,
+        cornerRadius = vector.cornerRadius * scale,
+        textHeight = vector.textHeight * scale,
+        rawPoints = newPoints
+    )
+}
+
+private fun rotateVector(vector: AspireVector, angleDegrees: Float): AspireVector {
+    val radians = Math.toRadians(angleDegrees.toDouble())
+    val cos = Math.cos(radians).toFloat()
+    val sin = Math.sin(radians).toFloat()
+    val newPoints = vector.rawPoints.map { pt ->
+        val dx = pt.x - vector.cx
+        val dy = pt.y - vector.cy
+        val rotatedX = dx * cos - dy * sin
+        val rotatedY = dx * sin + dy * cos
+        Offset(vector.cx + rotatedX, vector.cy + rotatedY)
+    }
+    return vector.copy(rawPoints = newPoints)
+}
+
+private fun mirrorVector(vector: AspireVector, horizontal: Boolean): AspireVector {
+    val newPoints = vector.rawPoints.map { pt ->
+        if (horizontal) {
+            val dx = pt.x - vector.cx
+            Offset(vector.cx - dx, pt.y)
+        } else {
+            val dy = pt.y - vector.cy
+            Offset(pt.x, vector.cy - dy)
+        }
+    }
+    return vector.copy(rawPoints = newPoints)
+}
+
+private fun moveVector(vector: AspireVector, dx: Float, dy: Float): AspireVector {
+    val newPoints = vector.rawPoints.map { pt ->
+        Offset(pt.x + dx, pt.y + dy)
+    }
+    return vector.copy(
+        cx = vector.cx + dx,
+        cy = vector.cy + dy,
+        rawPoints = newPoints
+    )
+}
+
+private fun centerVector(vector: AspireVector): AspireVector {
+    val dx = -vector.cx
+    val dy = -vector.cy
+    return moveVector(vector, dx, dy)
+}
+
+private fun generatePocketPaths(vector: AspireVector, toolDiameter: Float): List<List<Offset>> {
+    val paths = mutableListOf<List<Offset>>()
+    paths.add(vector.rawPoints)
+    
+    if (vector.type == "Circle" && vector.radius > toolDiameter) {
+        var currentRadius = vector.radius - toolDiameter * 0.7f
+        while (currentRadius > 0.5f) {
+            paths.add(createCirclePoints(vector.cx, vector.cy, currentRadius))
+            currentRadius -= toolDiameter * 0.7f
+        }
+    } else if (vector.type == "Rectangle" && vector.width > toolDiameter && vector.height > toolDiameter) {
+        var offsetW = vector.width - toolDiameter * 1.4f
+        var offsetH = vector.height - toolDiameter * 1.4f
+        while (offsetW > 0.5f && offsetH > 0.5f) {
+            paths.add(createRectanglePoints(vector.cx, vector.cy, offsetW, offsetH, vector.cornerRadius))
+            offsetW -= toolDiameter * 1.4f
+            offsetH -= toolDiameter * 1.4f
+        }
+    } else {
+        for (i in 1..4) {
+            val scale = 1f - (i * 0.2f)
+            if (scale > 0.1f) {
+                val replica = vector.rawPoints.map { pt ->
+                    Offset(vector.cx + (pt.x - vector.cx) * scale, vector.cy + (pt.y - vector.cy) * scale)
+                }
+                paths.add(replica)
+            }
+        }
+    }
+    return paths
+}
+
+private fun compileToAspireGCode(
+    vectors: List<AspireVector>,
+    depthZ: Float,
+    passZ: Float,
+    spindleRpm: Int,
+    feedRate: Float,
+    plungeRate: Float,
+    safeHeight: Float,
+    toolName: String,
+    sideMode: String,
+    toolpathType: String,
+    addHoldingTabs: Boolean,
+    holdingTabsCount: Int,
+    cuttingDirection: String,
+    reliefDepthGrid: Array<FloatArray>? = null,
+    reliefZMax: Float = 6.0f
+): String {
+    val builder = StringBuilder()
+    
+    val toolDiameter = when {
+        toolName.contains("1/4") -> 6.35f
+        toolName.contains("1/8") -> 3.175f
+        toolName.contains("60°") -> 3.175f
+        toolName.contains("2mm") -> 2.0f
+        else -> 3.175f
+    }
+    val toolRadius = toolDiameter / 2f
+    
+    // G-code standard headers (GRBL/FluidNC standard)
+    builder.append(";====================================================\n")
+    builder.append("; Vectric ASPIRE G-code Post-Processor Compiler v5.0\n")
+    builder.append("; CAD/CAM Style: $toolpathType | Direction: $cuttingDirection\n")
+    builder.append("; Tool Select: $toolName (Dia: $toolDiameter mm)\n")
+    builder.append("; Target Finish Depth: $depthZ mm | Step Down: $passZ mm\n")
+    builder.append("; Holding Tabs: ${if (addHoldingTabs) "Enabled ($holdingTabsCount tabs)" else "Disabled"}\n")
+    builder.append("; CNC Codebase Compliant: FluidNC / GRBL Controller\n")
+    builder.append(";====================================================\n\n")
+    
+    builder.append("G21 ; Set units to Metric millimetres\n")
+    builder.append("G90 ; Set positioning absolute coordinate mode\n")
+    builder.append("G17 ; Select XY drawing plane orientation\n")
+    builder.append("M3 S$spindleRpm ; Initialize tool spindle RPM clockwise\n")
+    builder.append("G0 Z$safeHeight ; Raise spindle cutter index to safe hover Z height\n\n")
+    
+    val depthValOffset = Math.abs(depthZ)
+    val passValOffset = Math.abs(passZ)
+    val totalPasses = Math.ceil((depthValOffset / passValOffset).toDouble()).toInt()
+    
+    if (toolpathType == "3D_ROUGH" || toolpathType == "3D_FINISH") {
+        val grid = reliefDepthGrid
+        val maxZ = Math.abs(reliefZMax)
+        if (grid != null) {
+            val w = grid.size
+            val h = grid[0].size
+            builder.append("; --- Creating Raster Carving Passes for 3D Relief Model ---\n")
+            
+            val step = if (toolpathType == "3D_ROUGH") 4 else 2
+            val mmRange = 120f
+            
+            for (yIdx in 0 until h step step) {
+                val range = if (yIdx % 2 == 0) (0 until w step step) else ((w - 1) downTo 0 step step)
+                val mmY = -(yIdx - h/2f) * (mmRange / h)
+                
+                // Rapid transit to start of row
+                val firstXIdx = if (yIdx % 2 == 0) 0 else w - 1
+                val mmXFirst = (firstXIdx - w/2f) * (mmRange / w)
+                val firstZ = -grid[firstXIdx][yIdx] * maxZ
+                
+                builder.append("G0 X${String.format("%.3f", mmXFirst)} Y${String.format("%.3f", mmY)} Z$safeHeight ; Transit to start\n")
+                builder.append("G1 Z${String.format("%.3f", firstZ)} F${plungeRate.toInt()} ; Plunge\n")
+                
+                range.forEach { xIdx ->
+                    val mmX = (xIdx - w/2f) * (mmRange / w)
+                    val zVal = -grid[xIdx][yIdx] * maxZ
+                    builder.append("G1 X${String.format("%.3f", mmX)} Y${String.format("%.3f", mmY)} Z${String.format("%.3f", zVal)} F${feedRate.toInt()}\n")
+                }
+                builder.append("G1 Z$safeHeight F800 ; Lift\n\n")
+            }
+        } else {
+            builder.append("; Warning: No 3D Relief model selected or loaded for carving!\n")
+        }
+        
+        // Standard shutdown sequence
+        builder.append("; --- Shutdown sequence ---\n")
+        builder.append("M5 ; Spindle tool rotation stop\n")
+        builder.append("G0 X0.000 Y0.000 ; Rapid transit axis return to home origin XY zero\n")
+        builder.append("M2 ; End G-code programs safely\n")
+        return builder.toString()
+    }
+    
+    vectors.forEach { v ->
+        builder.append("; --- Constructing Toolpaths for Vector Entity: [${v.type.uppercase()}] ${v.name} ---\n")
+        
+        // Apply tool radius offset of Profile cut (Outside/Inside)
+        var cuttingPoints = v.rawPoints
+        if (toolpathType == "PROFILE") {
+            if (sideMode == "OUTSIDE") {
+                if (v.type == "Circle") {
+                    cuttingPoints = createCirclePoints(v.cx, v.cy, v.radius + toolRadius)
+                } else if (v.type == "Rectangle") {
+                    cuttingPoints = createRectanglePoints(v.cx, v.cy, v.width + toolDiameter, v.height + toolDiameter, v.cornerRadius)
+                }
+            } else if (sideMode == "INSIDE") {
+                if (v.type == "Circle" && v.radius > toolRadius) {
+                    cuttingPoints = createCirclePoints(v.cx, v.cy, v.radius - toolRadius)
+                } else if (v.type == "Rectangle" && v.width > toolDiameter && v.height > toolDiameter) {
+                    cuttingPoints = createRectanglePoints(v.cx, v.cy, v.width - toolDiameter, v.height - toolDiameter, v.cornerRadius)
+                }
+            }
+        }
+        
+        if (cuttingPoints.isEmpty()) return@forEach
+        
+        // Multi-passes
+        if (toolpathType == "DRILL") {
+            // Drill mode: Move to center, slowly plunge to depth, and lift!
+            val drillPt = if (v.type == "Polyline" && v.rawPoints.isNotEmpty()) v.rawPoints.first() else Offset(v.cx, v.cy)
+            builder.append("; Transit to Center of Hole: X=${drillPt.x}, Y=${drillPt.y}\n")
+            builder.append("G0 X${String.format("%.3f", drillPt.x)} Y${String.format("%.3f", drillPt.y)} Z$safeHeight\n")
+            builder.append("G1 Z$depthZ F${plungeRate.toInt()} ; Plunge drilling down\n")
+            builder.append("G0 Z$safeHeight ; Retract drilling spindle\n\n")
+        } else if (toolpathType == "POCKET") {
+            // Pocket mode: Spiral clearing
+            val pocketPathsList = generatePocketPaths(v, toolDiameter)
+            pocketPathsList.forEachIndexed { pathIdx, pPoints ->
+                builder.append("; Pocket Pass Spiral Loop $pathIdx\n")
+                val fPt = pPoints.first()
+                builder.append("G0 X${String.format("%.3f", fPt.x)} Y${String.format("%.3f", fPt.y)} Z$safeHeight ; Rapid transit\n")
+                
+                for (passIdx in 1..totalPasses) {
+                    val activePassZValue = -(passIdx * passValOffset).coerceAtMost(depthValOffset)
+                    builder.append("G1 Z${String.format("%.3f", activePassZValue)} F${plungeRate.toInt()} ; Plunge into pocket layer\n")
+                    pPoints.forEach { pt ->
+                        builder.append("G1 X${String.format("%.3f", pt.x)} Y${String.format("%.3f", pt.y)} F${feedRate.toInt()} ; Pocketing feed\n")
+                    }
+                }
+                builder.append("G0 Z$safeHeight ; Raise cutter clear\n\n")
+            }
+        } else {
+            // General Profiling or centerline carves
+            val fPt = cuttingPoints.first()
+            builder.append("G0 X${String.format("%.3f", fPt.x)} Y${String.format("%.3f", fPt.y)} Z$safeHeight\n")
+            
+            for (passIdx in 1..totalPasses) {
+                val activePassZValue = -(passIdx * passValOffset).coerceAtMost(depthValOffset)
+                builder.append("; Profile Pass Level $passIdx at Depth Z = $activePassZValue mm\n")
+                
+                builder.append("G1 Z${String.format("%.3f", activePassZValue)} F${plungeRate.toInt()} ; Plunge plunge-rate\n")
+                
+                // Climb vs Conventional cut ordering: Reverse coordinate array traversal if Conventional cut!
+                val orientedPoints = if (cuttingDirection == "CONVENTIONAL") cuttingPoints.reversed() else cuttingPoints
+                
+                orientedPoints.forEachIndexed { ptIdx, pt ->
+                    // Support Holding Tabs Bridge Lift: raise Z-axis for a short range at tab positions
+                    val isAtTabLocation = addHoldingTabs && (ptIdx > 0 && @Suppress("INTEGER_DIVIDE_BY_ZERO") ptIdx % (orientedPoints.size / (holdingTabsCount + 1).coerceAtLeast(2)).coerceAtLeast(1) == 0)
+                    val activeCutZ = if (isAtTabLocation && passIdx == totalPasses) {
+                        // Raise tool halfway through material stock to leave a solid structural hold tab bridge!
+                        activePassZValue / 2f
+                    } else {
+                        activePassZValue
+                    }
+                    builder.append("G1 X${String.format("%.3f", pt.x)} Y${String.format("%.3f", pt.y)} Z${String.format("%.3f", activeCutZ)} F${feedRate.toInt()} ; Cutting path\n")
+                }
+            }
+            builder.append("G0 Z$safeHeight ; Retract clear\n\n")
+        }
+    }
+    
+    // Standard shutdown sequence
+    builder.append("; --- Shutdown sequence ---\n")
+    builder.append("M5 ; Spindle tool rotation stop\n")
+    builder.append("G0 X0.000 Y0.000 ; Rapid transit axis return to home origin XY zero\n")
+    builder.append("M2 ; End G-code programs safely\n")
+    
+    return builder.toString()
+}
+
+// =========================================================================
+// 3D MODELING & CNC SLICING MACHINERY (VECTRIC ASPIRE STYLE)
+// =========================================================================
+
+data class AspireVector3(val x: Float, val y: Float, val z: Float)
+
+/**
+ * Robust binary & ASCII CAD STL mesh parser.
+ * Projects 3D mesh triangles onto a memory-safe heightmap grid.
+ */
+private fun parseStlToDepthMap(inputStream: java.io.InputStream, gridWidth: Int = 64, gridHeight: Int = 64): Array<FloatArray> {
+    val grid = Array(gridWidth) { FloatArray(gridHeight) { 0f } }
+    try {
+        val bytes = inputStream.readBytes()
+        if (bytes.size < 84) return grid
+        
+        // Auto-detect format type: ASCII starts with "solid" keyword
+        val headerString = bytes.take(80).toByteArray().decodeToString()
+        val isAscii = headerString.trimStart().startsWith("solid")
+        
+        val triangles = mutableListOf<Triple<AspireVector3, AspireVector3, AspireVector3>>()
+        
+        if (isAscii) {
+            val reader = bytes.decodeToString().reader().buffered()
+            var line = reader.readLine()
+            var v1: AspireVector3? = null
+            var v2: AspireVector3? = null
+            var v3: AspireVector3? = null
+            while (line != null) {
+                val trimmed = line.trim().lowercase()
+                if (trimmed.startsWith("vertex")) {
+                    val parts = trimmed.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                    if (parts.size >= 4) {
+                        val x = parts[1].toFloatOrNull() ?: 0f
+                        val y = parts[2].toFloatOrNull() ?: 0f
+                        val z = parts[3].toFloatOrNull() ?: 0f
+                        val vec = AspireVector3(x, y, z)
+                        if (v1 == null) v1 = vec
+                        else if (v2 == null) v2 = vec
+                        else if (v3 == null) {
+                            v3 = vec
+                            triangles.add(Triple(v1, v2, v3))
+                            v1 = null
+                            v2 = null
+                            v3 = null
+                        }
+                    }
+                }
+                line = reader.readLine()
+            }
+        } else {
+            // Binary STL format parsing
+            var offset = 80
+            val numTriangles = java.nio.ByteBuffer.wrap(bytes, offset, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+            offset += 4
+            
+            val limit = minOf(numTriangles, 6000) // safety limit for quick indexing on mobile
+            for (i in 0 until limit) {
+                if (offset + 50 > bytes.size) break
+                offset += 12 // skip face normals vector coordinates
+                
+                val buf = java.nio.ByteBuffer.wrap(bytes, offset, 36).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                val v1 = AspireVector3(buf.getFloat(), buf.getFloat(), buf.getFloat())
+                val v2 = AspireVector3(buf.getFloat(), buf.getFloat(), buf.getFloat())
+                val v3 = AspireVector3(buf.getFloat(), buf.getFloat(), buf.getFloat())
+                offset += 36
+                offset += 2 // skip attributes details
+                
+                triangles.add(Triple(v1, v2, v3))
+            }
+        }
+        
+        if (triangles.isEmpty()) return grid
+        
+        // Establish bounding bounds
+        var minX = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        var minZ = Float.MAX_VALUE
+        var maxZ = -Float.MAX_VALUE
+        
+        triangles.forEach { (v1, v2, v3) ->
+            listOf(v1, v2, v3).forEach { v ->
+                if (v.x < minX) minX = v.x
+                if (v.x > maxX) maxX = v.x
+                if (v.y < minY) minY = v.y
+                if (v.y > maxY) maxY = v.y
+                if (v.z < minZ) minZ = v.z
+                if (v.z > maxZ) maxZ = v.z
+            }
+        }
+        
+        val dx = if (maxX - minX > 0) maxX - minX else 1f
+        val dy = if (maxY - minY > 0) maxY - minY else 1f
+        val dz = if (maxZ - minZ > 0) maxZ - minZ else 1f
+        
+        // Raster project heights map
+        triangles.forEach { (v1, v2, v3) ->
+            val triMinX = minOf(v1.x, v2.x, v3.x)
+            val triMaxX = maxOf(v1.x, v2.x, v3.x)
+            val triMinY = minOf(v1.y, v2.y, v3.y)
+            val triMaxY = maxOf(v1.y, v2.y, v3.y)
+            
+            val colStart = (((triMinX - minX) / dx) * (gridWidth - 1)).toInt().coerceIn(0, gridWidth - 1)
+            val colEnd = (((triMaxX - minX) / dx) * (gridWidth - 1)).toInt().coerceIn(0, gridWidth - 1)
+            val rowStart = (((triMinY - minY) / dy) * (gridHeight - 1)).toInt().coerceIn(0, gridHeight - 1)
+            val rowEnd = (((triMaxY - minY) / dy) * (gridHeight - 1)).toInt().coerceIn(0, gridHeight - 1)
+            
+            val avgZ = (v1.z + v2.z + v3.z) / 3f
+            val normZ = if (dz > 0) (avgZ - minZ) / dz else 0.5f
+            
+            for (c in colStart..colEnd) {
+                for (r in rowStart..rowEnd) {
+                    if (normZ > grid[c][r]) {
+                        grid[c][r] = normZ
+                    }
+                }
+            }
+        }
+        
+        // Blurring filter box-blur smoothing
+        val smoothGrid = Array(gridWidth) { FloatArray(gridHeight) }
+        for (c in 0 until gridWidth) {
+            for (r in 0 until gridHeight) {
+                var sum = 0f
+                var count = 0
+                for (dc in -1..1) {
+                    for (dr in -1..1) {
+                        val nc = c + dc
+                        val nr = r + dr
+                        if (nc in 0 until gridWidth && nr in 0 until gridHeight) {
+                            sum += grid[nc][nr]
+                            count++
+                        }
+                    }
+                }
+                smoothGrid[c][r] = if (count > 0) sum / count else grid[c][r]
+            }
+        }
+        return smoothGrid
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return grid
+}
+
+/**
+ * Generates an acanthus floral rosette relief ornament
+ */
+private fun generateRosetteGrid(w: Int = 64, h: Int = 64): Array<FloatArray> {
+    val grid = Array(w) { FloatArray(h) }
+    for (x in 0 until w) {
+        for (y in 0 until h) {
+            val nx = (x - w / 2f) / (w / 2f)
+            val ny = (y - h / 2f) / (h / 2f)
+            val r = kotlin.math.sqrt((nx * nx + ny * ny).toDouble()).toFloat()
+            if (r <= 1.0f) {
+                val theta = kotlin.math.atan2(ny.toDouble(), nx.toDouble()).toFloat()
+                val petal = kotlin.math.cos((8f * theta).toDouble()).toFloat()
+                val height = (1.0f - r) * (0.6f + 0.4f * petal) * kotlin.math.sin((r * kotlin.math.PI).toDouble()).toFloat()
+                grid[x][y] = height.coerceIn(0f, 1f)
+            } else {
+                grid[x][y] = 0f
+            }
+        }
+    }
+    return grid
+}
+
+/**
+ * Generates an imperial crest shield & eagle ornament
+ */
+private fun generateEagleGrid(w: Int = 64, h: Int = 64): Array<FloatArray> {
+    val grid = Array(w) { FloatArray(h) }
+    for (x in 0 until w) {
+        for (y in 0 until h) {
+            val nx = (x - w / 2f) / (w / 2f)
+            val ny = (y - h / 2f) / (h / 2f)
+            val r = kotlin.math.sqrt((nx * nx + ny * ny).toDouble()).toFloat()
+            var z = 0f
+            if (r < 0.9f) {
+                val body = 0.4f * (1f - (nx * nx * 2.5f + (ny + 0.1f) * (ny + 0.1f) * 1.5f).coerceIn(0f, 1f))
+                val wingCurve = 0.5f * (1f - kotlin.math.abs(ny - (nx * nx * 0.4f))) * (1f - kotlin.math.abs(nx))
+                val head = if (kotlin.math.abs(nx) < 0.15f && ny > 0.4f && ny < 0.7f) 0.35f else 0f
+                val shield = if (kotlin.math.abs(nx) < 0.25f && kotlin.math.abs(ny) < 0.3f) {
+                    0.5f * (1f - (nx / 0.25f) * (nx / 0.25f))
+                } else 0f
+                z = maxOf(body, wingCurve, head, shield).coerceIn(0f, 1f)
+            }
+            grid[x][y] = z
+        }
+    }
+    return grid
+}
+
+/**
+ * Generates an organic rose blossom rosette
+ */
+private fun generateRoseGrid(w: Int = 64, h: Int = 64): Array<FloatArray> {
+    val grid = Array(w) { FloatArray(h) }
+    for (x in 0 until w) {
+        for (y in 0 until h) {
+            val nx = (x - w / 2f) / (w / 2f)
+            val ny = (y - h / 2f) / (h / 2f)
+            val r = kotlin.math.sqrt((nx * nx + ny * ny).toDouble()).toFloat()
+            if (r <= 0.85f) {
+                val theta = kotlin.math.atan2(ny.toDouble(), nx.toDouble()).toFloat()
+                val petal1 = kotlin.math.abs(kotlin.math.sin((5 * theta).toDouble())).toFloat()
+                val val1 = (1f - r) * (0.3f + 0.7f * petal1)
+                val petal2 = kotlin.math.abs(kotlin.math.sin((3 * theta + 2f).toDouble())).toFloat()
+                val val2 = if (r < 0.5f) (0.5f - r) * (0.4f + 0.6f * petal2) else 0f
+                grid[x][y] = (val1 + val2).coerceIn(0f, 1f)
+            } else {
+                grid[x][y] = 0f
+            }
+        }
+    }
+    return grid
+}
+
+/**
+ * Real-time 3D Photorealistic render shading generator. Applies a fast local
+ * normal diffuse lighting multiplier to represent real dimensional relief on wood/metals.
+ */
+private fun generateReliefShadedBitmap(grid: Array<FloatArray>, material: String): android.graphics.Bitmap {
+    val w = grid.size
+    val h = grid[0].size
+    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    
+    // Choose beautiful color ramps
+    val peakR: Float; val peakG: Float; val peakB: Float
+    val valleyR: Float; val valleyG: Float; val valleyB: Float
+    
+    when (material) {
+        "OAK" -> {
+            peakR = 215/255f; peakG = 161/255f; peakB = 92/255f
+            valleyR = 90/255f; valleyG = 49/255f; valleyB = 37/255f
+        }
+        "CHERRY" -> {
+            peakR = 139/255f; peakG = 44/255f; peakB = 25/255f
+            valleyR = 59/255f; valleyG = 11/255f; valleyB = 2/255f
+        }
+        "PINE" -> {
+            peakR = 238/255f; peakG = 221/255f; peakB = 146/255f
+            valleyR = 107/255f; valleyG = 69/255f; valleyB = 34/255f
+        }
+        "BRASS" -> {
+            peakR = 222/255f; peakG = 195/255f; peakB = 106/255f
+            valleyR = 59/255f; valleyG = 47/255f; valleyB = 4/255f
+        }
+        "SLATE" -> {
+            peakR = 76/255f; peakG = 85/255f; peakB = 92/255f
+            valleyR = 15/255f; valleyG = 17/255f; valleyB = 21/255f
+        }
+        else -> { // WALNUT default
+            peakR = 122/255f; peakG = 75/255f; peakB = 58/255f
+            valleyR = 30/255f; valleyG = 14/255f; valleyB = 10/255f
+        }
+    }
+    
+    for (x in 0 until w) {
+        for (y in 0 until h) {
+            val z = grid[x][y]
+            
+            val zLeft = if (x > 0) grid[x - 1][y] else z
+            val zRight = if (x < w - 1) grid[x + 1][y] else z
+            val zUp = if (y > 0) grid[x][y - 1] else z
+            val zDown = if (y < h - 1) grid[x][y + 1] else z
+            
+            val nx = (zLeft - zRight) * 5f
+            val ny = (zUp - zDown) * 5f
+            val nz = 1.0f
+            
+            val len = kotlin.math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat()
+            val nnx = nx / len
+            val nny = ny / len
+            val nnz = nz / len
+            
+            // Light source: top-left overhead hover
+            val lx = -0.6f
+            val ly = 0.6f
+            val lz = 1.2f
+            val lLen = kotlin.math.sqrt((lx * lx + ly * ly + lz * lz).toDouble()).toFloat()
+            val nlx = lx / lLen
+            val nly = ly / lLen
+            val nlz = lz / lLen
+            
+            val dot = nnx * nlx + nny * nly + nnz * nlz
+            val diffuse = maxOf(0f, dot)
+            
+            val baseR = valleyR * (1f - z) + peakR * z
+            val baseG = valleyG * (1f - z) + peakG * z
+            val baseB = valleyB * (1f - z) + peakB * z
+            
+            val shader = 0.5f + 0.62f * diffuse
+            val finalR = (baseR * shader * 255f).coerceIn(0f, 255f).toInt()
+            val finalG = (baseG * shader * 255f).coerceIn(0f, 255f).toInt()
+            val finalB = (baseB * shader * 255f).coerceIn(0f, 255f).toInt()
+            
+            val alpha = if (z > 0.015f) 220 else 0 // alpha blend overlay
+            val pixel = (alpha shl 24) or (finalR shl 16) or (finalG shl 8) or finalB
+            bmp.setPixel(x, y, pixel)
+        }
+    }
+    return bmp
+}
+
+/**
+ * Scans high-resolution image dark regions to trace outlines / contours as vector paths
+ */
+private fun traceBitmapContours(bmp: android.graphics.Bitmap, threshold: Float): List<List<Offset>> {
+    val paths = mutableListOf<List<Offset>>()
+    try {
+        val w = minOf(bmp.width, 64)
+        val h = minOf(bmp.height, 64)
+        val resized = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true)
+        
+        val isBlack = Array(w) { BooleanArray(h) }
+        for (x in 0 until w) {
+            for (y in 0 until h) {
+                val pixel = resized.getPixel(x, y)
+                val r = ((pixel shr 16) and 0xff) / 255f
+                val g = ((pixel shr 8) and 0xff) / 255f
+                val b = (pixel and 0xff) / 255f
+                val brightness = 0.2126f * r + 0.7152f * g + 0.0722f * b
+                isBlack[x][y] = brightness < threshold
+            }
+        }
+        
+        // Scan horizontal hatch vectors (outlines boundaries)
+        for (y in 2 until h - 2 step 2) {
+            var startX = -1
+            for (x in 2 until w - 2) {
+                val solid = isBlack[x][y]
+                if (solid && startX == -1) {
+                    startX = x
+                } else if (!solid && startX != -1) {
+                    val mmX1 = (startX - w / 2f) * (120f / w)
+                    val mmX2 = (x - w / 2f) * (120f / w)
+                    val mmY = -(y - h / 2f) * (120f / h)
+                    paths.add(listOf(Offset(mmX1, mmY), Offset(mmX2, mmY)))
+                    startX = -1
+                }
+            }
+            if (startX != -1) {
+                val mmX1 = (startX - w / 2f) * (120f / w)
+                val mmX2 = ((w - 2) - w / 2f) * (120f / w)
+                val mmY = -(y - h / 2f) * (120f / h)
+                paths.add(listOf(Offset(mmX1, mmY), Offset(mmX2, mmY)))
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return paths
+}
+
 

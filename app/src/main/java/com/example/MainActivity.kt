@@ -6,6 +6,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -17,7 +24,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -89,20 +100,81 @@ fun SplashScreen(onTimeout: () -> Unit) {
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(24.dp)
             ) {
-                // Glow card containing the high-tech app logo
+                // Dynamic CAD/CAM toolpath vector simulator (No static logo)
                 Box(
                     modifier = Modifier
                         .size(140.dp)
-                        .background(Color(0xFF141926).copy(alpha = 0.5f), shape = RoundedCornerShape(16.dp))
                         .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_app_logo),
-                        contentDescription = "G-code Editor Logo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
+                    val infiniteTransition = rememberInfiniteTransition(label = "toolpath_anim")
+                    val rotation by infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(4000, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "spindle_rotation"
                     )
+                    
+                    val pulse by infiniteTransition.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1500, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "laser_pulse"
+                    )
+
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val centerVal = Offset(size.width / 2f, size.height / 2f)
+                        val maxRadius = size.minDimension / 2f
+                        
+                        // 1. Grid/Circular calibration axis
+                        drawCircle(
+                            color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                            radius = maxRadius,
+                            style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)))
+                        )
+                        drawCircle(
+                            color = Color(0xFF00E676).copy(alpha = 0.25f),
+                            radius = maxRadius * 0.7f,
+                            style = Stroke(width = 1.5.dp.toPx())
+                        )
+                        
+                        // 2. Crosshairs index lines (Vectric CAM Job Setup style)
+                        drawLine(
+                            color = Color(0xFF90A4AE).copy(alpha = 0.3f),
+                            start = Offset(centerVal.x - maxRadius, centerVal.y),
+                            end = Offset(centerVal.x + maxRadius, centerVal.y),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        drawLine(
+                            color = Color(0xFF90A4AE).copy(alpha = 0.3f),
+                            start = Offset(centerVal.x, centerVal.y - maxRadius),
+                            end = Offset(centerVal.x, centerVal.y + maxRadius),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        
+                        // 3. Rotating spindle/laser tool animation
+                        rotate(rotation, pivot = centerVal) {
+                            // Virtual milling head
+                            drawCircle(
+                                color = Color.White,
+                                radius = 6.dp.toPx(),
+                                center = Offset(centerVal.x + maxRadius * 0.7f, centerVal.y)
+                            )
+                            // Glowing toolpath trace aura
+                            drawCircle(
+                                color = Color(0xFF00E5FF).copy(alpha = pulse),
+                                radius = 12.dp.toPx(),
+                                center = Offset(centerVal.x + maxRadius * 0.7f, centerVal.y),
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(28.dp))
