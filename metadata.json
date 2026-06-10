@@ -1,6 +1,6 @@
 {
   "name": "G-code editor",
-  "description": "Powerful utility for generating FluidNC compatible G-code from text, images, DXF CAD vectors, and AI designs, featuring a real-time live preview and simulation.",
+  "description": "Powerful utility for generating FluidNC compatible G-code from text, images, and AI designs, featuring a real-time live preview, simulation, and high-performance wireless G-code sender.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -998,9 +998,27 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     var fluidNCFeedrate by mutableStateOf(2000f) // in mm/min
     var fluidNCConsoleResponse by mutableStateOf<List<String>>(listOf("Offline Controller Siap. Sambungkan ke FluidNC (192.168.0.1)"))
     var isStreamingToFluidNC by mutableStateOf(false)
+    var isStreamPaused by mutableStateOf(false)
     var fluidNCStreamProgress by mutableStateOf(0f)
     var fluidNCStreamCurrentIndex by mutableStateOf(0)
     var fluidNCStreamTotal by mutableStateOf(0)
+    var fluidNCStreamDelay by mutableStateOf(20f) // in ms, default 20ms of user-tunable delay
+
+    // Digital Readout (DRO) Status
+    var fluidNCMachineStatus by mutableStateOf("Disconnected")
+    var mposX by mutableStateOf(0.0f)
+    var mposY by mutableStateOf(0.0f)
+    var mposZ by mutableStateOf(0.0f)
+    var wposX by mutableStateOf(0.0f)
+    var wposY by mutableStateOf(0.0f)
+    var wposZ by mutableStateOf(0.0f)
+    var activeFeedrate by mutableStateOf(0f)
+    var activeSpindle by mutableStateOf(0f)
+    var fluidNCBufferLines by mutableStateOf(0)
+    
+    // Stream performance analytics
+    var elapsedStreamingTimeSec by mutableStateOf(0L)
+    var estimatedStreamingTimeSec by mutableStateOf(0L)
 
     // CNC Z-Probe States
     var probeFeedrate by mutableStateOf(100f)
@@ -1186,6 +1204,7 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         fluidNCConnectionStatus = "CONNECTED"
                         appendConsoleLog("Terhubung ke FluidNC! Status: $statusText")
+                        startFluidStatusPolling()
                     }
                 } else {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
@@ -1345,56 +1364,218 @@ class GCodeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var streamJob: kotlinx.coroutines.Job? = null
+    private var pollerJob: kotlinx.coroutines.Job? = null
+
+    fun startFluidStatusPolling() {
+        pollerJob?.cancel()
+        pollerJob = viewModelScope.launch(Dispatchers.IO) {
+            fluidNCMachineStatus = "Idle"
+            while (fluidNCConnectionStatus == "CONNECTED") {
+                try {
+                    val statusText = executeNetworkCommand(cleanIP, "?")
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        parseFluidStatus(statusText)
+                    }
+                } catch (e: Exception) {
+                    // Ignore transient polling drops
+                }
+                kotlinx.coroutines.delay(600)
+            }
+            fluidNCMachineStatus = "Disconnected"
+        }
+    }
+
+    fun stopFluidStatusPolling() {
+        pollerJob?.cancel()
+        pollerJob = null
+    }
+
+    fun parseFluidStatus(statusLine: String) {
+        val line = statusLine.trim()
+        if (!line.startsWith("<") || !line.endsWith(">")) return
+        val cleanLine = line.substring(1, line.length - 1)
+        val parts = cleanLine.split("|")
+        if (parts.isEmpty()) return
+        
+        fluidNCMachineStatus = parts[0]
+        
+        var mposParsed = false
+        var wposParsed = false
+        val wco = floatArrayOf(0f, 0f, 0f)
+        
+        for (part in parts) {
+            if (part.startsWith("MPos:", ignoreCase = true)) {
+                val coords = part.substring(5).split(",")
+                if (coords.size >= 3) {
+                    mposX = coords[0].toFloatOrNull() ?: 0f
+                    mposY = coords[1].toFloatOrNull() ?: 0f
+                    mposZ = coords[2].toFloatOrNull() ?: 0f
+                    mposParsed = true
+                }
+            } else if (part.startsWith("WPos:", ignoreCase = true)) {
+                val coords = part.substring(5).split(",")
+                if (coords.size >= 3) {
+                    wposX = coords[0].toFloatOrNull() ?: 0f
+                    wposY = coords[1].toFloatOrNull() ?: 0f
+                    wposZ = coords[2].toFloatOrNull() ?: 0f
+                    wposParsed = true
+                }
+            } else if (part.startsWith("WCO:", ignoreCase = true)) {
+                val coords = part.substring(4).split(",")
+                if (coords.size >= 3) {
+                    wco[0] = coords[0].toFloatOrNull() ?: 0f
+                    wco[1] = coords[1].toFloatOrNull() ?: 0f
+                    wco[2] = coords[2].toFloatOrNull() ?: 0f
+                }
+            } else if (part.startsWith("FS:", ignoreCase = true)) {
+                val speeds = part.substring(3).split(",")
+                if (speeds.size >= 2) {
+                    activeFeedrate = speeds[0].toFloatOrNull() ?: 0f
+                    activeSpindle = speeds[1].toFloatOrNull() ?: 0f
+                }
+            } else if (part.startsWith("Bf:", ignoreCase = true)) {
+                val buf = part.substring(3).split(",")
+                if (buf.isNotEmpty()) {
+                    fluidNCBufferLines = buf[0].toIntOrNull() ?: 0
+                }
+            }
+        }
+        
+        if (mposParsed && !wposParsed) {
+            wposX = mposX - wco[0]
+            wposY = mposY - wco[1]
+            wposZ = mposZ - wco[2]
+        } else if (wposParsed && !mposParsed) {
+            mposX = wposX + wco[0]
+            mposY = wposY + wco[1]
+            mposZ = wposZ + wco[2]
+        }
+    }
 
     fun startStreamingGCode() {
         if (currentGCode.isBlank()) {
             appendConsoleLog("Gagal Memulai: Kode G-Code kosong!")
             return
         }
-        val lines = currentGCode.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith(";") }
+        
+        val lines = currentGCode.lines().map { line ->
+            var cleaned = line.trim()
+            if (cleaned.contains(";")) {
+                cleaned = cleaned.substringBefore(";").trim()
+            }
+            if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
+                cleaned = ""
+            } else if (cleaned.contains("(") && cleaned.contains(")")) {
+                val commentPattern = Regex("\\(.*\\)")
+                cleaned = cleaned.replace(commentPattern, "").trim()
+            }
+            cleaned
+        }.filter { it.isNotEmpty() }
+
         if (lines.isEmpty()) {
-            appendConsoleLog("Gagal Memulai: Tidak ada instruksi G-code valid")
+            appendConsoleLog("Gagal Memulai: Tidak ada instruksi G-code valid sesudah disaring")
             return
         }
         
         isStreamingToFluidNC = true
+        isStreamPaused = false
         fluidNCStreamTotal = lines.size
         fluidNCStreamCurrentIndex = 0
         fluidNCStreamProgress = 0f
+        elapsedStreamingTimeSec = 0L
+        estimatedStreamingTimeSec = 0L
         
-        appendConsoleLog("Mengirim program CNC... (${lines.size} baris)")
+        appendConsoleLog("Memulai cast program CNC: Saringan otomatis membuang komentar/spasi kosong.")
+        appendConsoleLog("Total instruksi gerak bersih: ${lines.size} baris.")
         
         streamJob = viewModelScope.launch(Dispatchers.IO) {
-            for ((index, line) in lines.withIndex()) {
-                if (!isStreamingToFluidNC) break
+            val startTime = System.currentTimeMillis()
+            
+            val timerJob = launch {
+                while (isStreamingToFluidNC) {
+                    kotlinx.coroutines.delay(1000)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        elapsedStreamingTimeSec = (System.currentTimeMillis() - startTime) / 1000
+                    }
+                }
+            }
+            
+            var lineIndex = 0
+            while (lineIndex < lines.size && isStreamingToFluidNC) {
+                if (isStreamPaused) {
+                    kotlinx.coroutines.delay(200)
+                    continue
+                }
+                
+                val rawLine = lines[lineIndex]
+                val line = rawLine.replace(" ", "")
                 
                 try {
                     val res = executeNetworkCommand(cleanIP, line)
                     
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        fluidNCStreamCurrentIndex = index + 1
-                        fluidNCStreamProgress = (index + 1).toFloat() / lines.size.toFloat()
+                        fluidNCStreamCurrentIndex = lineIndex + 1
+                        fluidNCStreamProgress = (lineIndex + 1).toFloat() / lines.size.toFloat()
                         appendConsoleLog("[$fluidNCStreamCurrentIndex/$fluidNCStreamTotal] $line -> $res")
+                        
+                        val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
+                        if (fluidNCStreamCurrentIndex > 0 && elapsed > 1.0) {
+                            val secPerLine = elapsed / fluidNCStreamCurrentIndex
+                            estimatedStreamingTimeSec = (secPerLine * (lines.size - fluidNCStreamCurrentIndex)).toLong()
+                        }
+                    }
+                    
+                    if (res.contains("error:", ignoreCase = true) || res.contains("alarm:", ignoreCase = true)) {
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            isStreamPaused = true
+                            appendConsoleLog("⚠️ CNC Error Terdeteksi! Aliran dipause otomatis untuk mencegah tabrakan pahat.")
+                            appendConsoleLog("   Tekan 'RESUME' untuk memaksa lanjut, atau 'STOP' untuk meriset mesin.")
+                        }
                     }
                 } catch (e: Exception) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        appendConsoleLog("Gagal \"$line\": ${e.localizedMessage}")
+                        appendConsoleLog("Gagal Baris $lineIndex: \"$line\" (${e.localizedMessage})")
                     }
                 }
-                kotlinx.coroutines.delay(150)
+                
+                val currentDelay = fluidNCStreamDelay.toLong()
+                if (currentDelay > 0) {
+                    kotlinx.coroutines.delay(currentDelay)
+                }
+                
+                lineIndex++
             }
+            
+            timerJob.cancel()
             
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 isStreamingToFluidNC = false
-                appendConsoleLog("Pengiriman program selesai!")
+                isStreamPaused = false
+                appendConsoleLog("Streaming selesai! Total waktu aktif: ${elapsedStreamingTimeSec}s")
             }
         }
     }
 
+    fun pauseStreamingGCode() {
+        if (!isStreamingToFluidNC) return
+        isStreamPaused = true
+        sendFluidCommand("!")
+        appendConsoleLog("Stream dipause operator - Mengirim interupsi HOLD '!'")
+    }
+
+    fun resumeStreamingGCode() {
+        if (!isStreamingToFluidNC) return
+        isStreamPaused = false
+        sendFluidCommand("~")
+        appendConsoleLog("Stream dilanjutkan operator - Mengirim RESUME '~'")
+    }
+
     fun stopStreamingGCode() {
         isStreamingToFluidNC = false
+        isStreamPaused = false
         streamJob?.cancel()
-        appendConsoleLog("Pengiriman dihentikan operator.")
+        sendFluidCommand("\u0018") // Ctrl+X (soft reset)
+        appendConsoleLog("Pengiriman dibatalkan & Mesin di-Reset (M-STOP).")
     }
 
     // ==========================================

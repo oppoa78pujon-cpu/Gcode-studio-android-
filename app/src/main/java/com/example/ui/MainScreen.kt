@@ -134,12 +134,11 @@ class ResponsiveFlexScope(
 fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var activeTab by remember { mutableStateOf("ASPIRE") } // ASPIRE, TEXT, SKETCH, AI_STUDIO, PREVIEW, FILES, SETTINGS
+    var activeTab by remember { mutableStateOf("TEXT") } // TEXT, SKETCH, AI_STUDIO, PREVIEW, FILES, SETTINGS
     
     // Multi-Language Strings dictionary
     val lang = viewModel.language
     val tAppTitle = if (lang == "id") "FluidNC G-code Studio" else "FluidNC G-Code Studio"
-    val tAspireTab = if (lang == "id") "Vectric Aspire" else "Vectric Aspire"
     val tTextTab = if (lang == "id") "Teks" else "Text"
     val tSketchTab = if (lang == "id") "Sketsa/Gambar" else "Sketch/Image"
     val tAiTab = if (lang == "id") "Galeri Preset" else "Preset Gallery"
@@ -197,12 +196,10 @@ fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
                     }
 
                     val tabs = listOf(
-                            Triple("ASPIRE", tAspireTab, Icons.Default.Create),
                             Triple("TEXT", tTextTab, Icons.Default.Edit),
                             Triple("SKETCH", tSketchTab, Icons.Default.Share),
                             Triple("AI_STUDIO", tAiTab, Icons.Default.Star),
                             Triple("CONVERTER", if (lang == "id") "Konverter CNC" else "CNC Converter", Icons.Default.Refresh),
-                            Triple("DXF", if (lang == "id") "Konverter DXF" else "DXF Plotter", Icons.Default.Build),
                             Triple("PREVIEW", tPreviewTab, Icons.Default.PlayArrow),
                             Triple("FLUIDNC", if (lang == "id") "FluidNC Wi-Fi" else "FluidNC Control", Icons.Default.Menu),
                             Triple("FILES", tFilesTab, Icons.Default.List),
@@ -249,12 +246,10 @@ fun MainScreen(viewModel: GCodeViewModel, modifier: Modifier = Modifier) {
                     .weight(1f)
             ) {
                 when (activeTab) {
-                    "ASPIRE" -> AspireCADCAMPane(viewModel)
                     "TEXT" -> TextCreatorPane(viewModel)
                     "SKETCH" -> SketchAndImagePane(viewModel)
                     "AI_STUDIO" -> PatternPresetPane(viewModel)
                     "CONVERTER" -> CNCConverterPane(viewModel)
-                    "DXF" -> DXFConverterPane(viewModel)
                     "PREVIEW" -> LivePreviewPane(viewModel)
                     "FLUIDNC" -> FluidNCControlPane(viewModel)
                     "FILES" -> ProjectsPane(viewModel)
@@ -277,7 +272,6 @@ fun BeginnerGuideBanner(activeTab: String, lang: String) {
         "SKETCH" -> if (lang == "id") "🎨 Sketsa Tangan Bebas" else "🎨 Freehand Drawing Sketcher"
         "AI_STUDIO" -> if (lang == "id") "🌟 Galeri Pola Instan (Preset)" else "🌟 Instant Design Catalog"
         "CONVERTER" -> if (lang == "id") "📷 Konverter Foto ke CNC" else "📷 Photo to Engraving Trace"
-        "DXF" -> if (lang == "id") "📐 Pembaca File Desain DXF" else "📐 DXF CAD Vector Import"
         "PREVIEW" -> if (lang == "id") "👁️ Simulator & Cek Lintasan" else "👁️ Dry-run Visual Simulator"
         "FLUIDNC" -> if (lang == "id") "🎮 Remote & Sensor Z-Probe" else "🎮 WiFi Controller & Z-Probe"
         "FILES" -> if (lang == "id") "💾 Pustaka File G-Code Anda" else "💾 Saved Projects Library"
@@ -305,11 +299,6 @@ fun BeginnerGuideBanner(activeTab: String, lang: String) {
             if (lang == "id") "1. Upload foto JPG/PNG" else "1. Pick image file",
             if (lang == "id") "2. Sesuaikan Threshold" else "2. Dial threshold / dither",
             if (lang == "id") "3. Klik GENERATE RASTER" else "3. Process image to tool"
-        )
-        "DXF" -> listOf(
-            if (lang == "id") "1. Upload file CAD .dxf" else "1. Select .dxf vector file",
-            if (lang == "id") "2. Cek garis merah/putih" else "2. View line contours",
-            if (lang == "id") "3. Klik EKSPOR G-code" else "3. Convert into coordinates"
         )
         "PREVIEW" -> listOf(
             if (lang == "id") "1. Geser kanvas 3D" else "1. Swipe to rotate 3D view",
@@ -354,11 +343,6 @@ fun BeginnerGuideBanner(activeTab: String, lang: String) {
             "Mengubah potret foto wajah, logo, atau draf gambar biasa menjadi ribuan titik-titik ukiran laser (raster). Sangat cocok untuk kado ukiran kayu gantungan kunci."
         } else {
             "Convert JPG/PNG pictures or camera shots into beautiful dithered engraving lines. Perfect for wooden laser portrait frame gifts!"
-        }
-        "DXF" -> if (lang == "id") {
-            "Membaca file format industri .dxf dari AutoCAD/CorelDraw. Membantu Anda yang ingin langsung mengeksekusi gambar CAD profesional tanpa perlu laptop di lapangan."
-        } else {
-            "Import clean vector lines using .dxf standard. Load precise engineering drawings exported from CAD and send to carving instantly."
         }
         "PREVIEW" -> if (lang == "id") {
             "Jangan langsung mencolok mesin! Simulasikan gerakan kering rute di layar ini secara 3D interaktif. Anda bisa mencubit layar untuk Zoom atau menggesernya guna melihat rute potong Z."
@@ -2771,6 +2755,378 @@ fun LivePreviewPane(viewModel: GCodeViewModel) {
                 }
             }
         }
+
+        // ==========================================
+        // DYNAMIC DIRECT FLUIDNC WIRELESS SENDER CARD
+        // ==========================================
+        Card(
+            colors = CardDefaults.cardColors(containerColor = CardDark),
+            border = BorderStroke(1.5.dp, BorderCyan.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = RouterGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            if (lang == "id") "SENDER G-CODE FLUIDNC LANGSUNG" else "FLUIDNC G-CODE DIRECT SENDER",
+                            color = RouterGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Blinking Live indicator if active
+                    if (viewModel.isStreamingToFluidNC) {
+                        val pulseValue by rememberInfiniteTransition().animateFloat(
+                            initialValue = 0.3f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        )
+                        Text(
+                            text = if (viewModel.isStreamPaused) "PAUSED" else "STREAMING",
+                            color = (if (viewModel.isStreamPaused) Color(0xFFFF9800) else RouterGreen).copy(alpha = if (viewModel.isStreamPaused) 1f else pulseValue),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier
+                                .background((if (viewModel.isStreamPaused) Color(0xFFFF9800) else RouterGreen).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    if (lang == "id") 
+                        "Kirim file G-code hasil desain di atas langsung ke kontroler FluidNC Anda secara nirkabel melalui jaringan Wi-Fi IP."
+                        else "Stream the simulated laser/spindle G-code paths above directly to your FluidNC controller over local Wi-Fi.",
+                    color = UnselectedGrey,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp
+                )
+
+                Divider(color = BorderCyan.copy(alpha = 0.15f), thickness = 0.5.dp)
+
+                // Connection Row & Machine IP Configurator
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        if (lang == "id") "1. PENGATURAN KONEKSI WI-FI" else "1. WI-FI AP CONNECTION",
+                        color = PrimaryCyan,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = viewModel.fluidNCIpAddress,
+                            onValueChange = { viewModel.fluidNCIpAddress = it },
+                            label = { Text(if (lang == "id") "IP Alamat" else "IP Address", fontSize = 10.sp) },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(50.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.White),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryCyan,
+                                unfocusedBorderColor = BorderCyan.copy(alpha = 0.5f),
+                                focusedLabelColor = PrimaryCyan,
+                                unfocusedLabelColor = UnselectedGrey
+                            ),
+                            singleLine = true
+                        )
+
+                        val connStatusColor = when (viewModel.fluidNCConnectionStatus) {
+                            "CONNECTED" -> RouterGreen
+                            "FAILED" -> Color.Red
+                            "TESTING" -> PrimaryCyan
+                            else -> UnselectedGrey
+                        }
+                        val connStatusLabel = when (viewModel.fluidNCConnectionStatus) {
+                            "CONNECTED" -> if (lang == "id") "TERHUBUNG" else "CONNECTED"
+                            "FAILED" -> if (lang == "id") "GAGAL" else "FAILED"
+                            "TESTING" -> if (lang == "id") "TES..." else "TESTING..."
+                            else -> if (lang == "id") "BELUM HUBUNG" else "DISCONNECTED"
+                        }
+
+                        Button(
+                            onClick = { viewModel.testFluidConnection() },
+                            colors = ButtonDefaults.buttonColors(containerColor = connStatusColor, contentColor = if (viewModel.fluidNCConnectionStatus == "CONNECTED") SlateDark else Color.White),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text(
+                                text = connStatusLabel,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                // Digital Readout Coordinates Monitor (DRO HUD)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SlateDark),
+                    border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.2f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (lang == "id") "MONITOR KOORDINAT AKTIF (DRO)" else "ACTIVE COORDINATES DRO",
+                                color = UnselectedGrey,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            val statusColor = when (viewModel.fluidNCMachineStatus.uppercase()) {
+                                "IDLE" -> RouterGreen
+                                "RUN" -> PrimaryCyan
+                                "HOLD" -> Color(0xFFFF9800)
+                                "ALARM" -> Color.Red
+                                else -> UnselectedGrey
+                            }
+                            Text(
+                                "STATUS: ${viewModel.fluidNCMachineStatus.uppercase()}",
+                                color = statusColor,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("X Axis", color = UnselectedGrey, fontSize = 8.sp)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+06.2f", viewModel.wposX),
+                                    color = RouterGreen,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Y Axis", color = UnselectedGrey, fontSize = 8.sp)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+06.2f", viewModel.wposY),
+                                    color = RouterGreen,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Z Axis", color = UnselectedGrey, fontSize = 8.sp)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+06.2f", viewModel.wposZ),
+                                    color = RouterGreen,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Transmission Delay Setting
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .background(SlateDark.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (lang == "id") "Sela Kirim Laju Pasif (Delay):" else "Tx Speed Delay:",
+                            color = UnselectedGrey,
+                            fontSize = 9.sp
+                        )
+                        Text(
+                            "${viewModel.fluidNCStreamDelay.toInt()} ms",
+                            color = RouterGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Slider(
+                        value = viewModel.fluidNCStreamDelay,
+                        onValueChange = { viewModel.fluidNCStreamDelay = it },
+                        valueRange = 0f..250f,
+                        colors = SliderDefaults.colors(thumbColor = RouterGreen, activeTrackColor = RouterGreen),
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
+
+                Divider(color = BorderCyan.copy(alpha = 0.15f), thickness = 0.5.dp)
+
+                // Main Transmitter Stream Controller Buttons
+                if (viewModel.isStreamingToFluidNC) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                if (lang == "id") "Mengirim: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal} baris" 
+                                else "Streaming: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal} lines",
+                                color = RouterGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                "${(viewModel.fluidNCStreamProgress * 100).toInt()}%",
+                                color = RouterGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        LinearProgressIndicator(
+                            progress = { viewModel.fluidNCStreamProgress },
+                            color = RouterGreen,
+                            trackColor = SlateDark,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Elapsed: ${viewModel.elapsedStreamingTimeSec}s",
+                                color = UnselectedGrey,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                "Remaining: ~${viewModel.estimatedStreamingTimeSec}s",
+                                color = UnselectedGrey,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (viewModel.isStreamPaused) {
+                                Button(
+                                    onClick = { viewModel.resumeStreamingGCode() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800), contentColor = SlateDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (lang == "id") "LANJUT (~)" else "RESUME (~)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.pauseStreamingGCode() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63), contentColor = Color.White),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(if (lang == "id") "JEDA (!)" else "HOLD (!)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            
+                            Button(
+                                onClick = { viewModel.stopStreamingGCode() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(38.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(if (lang == "id") "RISET (STOP)" else "ABORT (STOP)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = { viewModel.startStreamingGCode() },
+                        colors = ButtonDefaults.buttonColors(containerColor = RouterGreen, contentColor = SlateDark),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        enabled = viewModel.currentGCode.isNotBlank()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (lang == "id") "KIRIM SEKARANG KE MESIN (RUN) ⚡" else "RUN TRANSMISSION TO MACHINE (RUN) ⚡",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    if (viewModel.currentGCode.isBlank()) {
+                        Text(
+                            if (lang == "id") "*Silakan siapkan atau rancang G-code terlebih dahulu di atas." 
+                            else "*Please write or compile G-code first using the designer above.",
+                            color = LaserCrimson,
+                            fontSize = 8.5.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // Modal dialog to enter project title
@@ -4894,6 +5250,132 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // LIVE GLOWING DIGITAL READOUT (DRO) PANEL - Realtime Coordinates of CNC machine
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SlateDark),
+                    border = BorderStroke(1.5.dp, BorderCyan.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (lang == "id") "DIGITAL READOUT (DRO) UTAMA" else "REALTIME DIGITAL READOUT (DRO)",
+                                color = PrimaryCyan,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            
+                            // Glowing state indicator
+                            val stateColor = when (viewModel.fluidNCMachineStatus.uppercase()) {
+                                "IDLE" -> RouterGreen
+                                "RUN" -> PrimaryCyan
+                                "HOLD" -> Color(0xFFFF9800)
+                                "ALARM" -> Color.Red
+                                "JOG" -> AccentBlue
+                                "HOMED" -> RouterGreen
+                                else -> UnselectedGrey
+                            }
+                            Text(
+                                text = "STATE: ${viewModel.fluidNCMachineStatus.uppercase()}",
+                                color = stateColor,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .background(stateColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            // X Axis
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("X-AXIS (Work)", color = UnselectedGrey, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+07.2f", viewModel.wposX),
+                                    color = RouterGreen,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text("MPos: ${String.format(java.util.Locale.US, "%.2f", viewModel.mposX)}", color = BorderCyan.copy(alpha = 0.5f), fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            
+                            // Divider line
+                            Box(modifier = Modifier.width(1.dp).height(35.dp).background(BorderCyan.copy(alpha = 0.15f)))
+
+                            // Y Axis
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Y-AXIS (Work)", color = UnselectedGrey, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+07.2f", viewModel.wposY),
+                                    color = RouterGreen,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text("MPos: ${String.format(java.util.Locale.US, "%.2f", viewModel.mposY)}", color = BorderCyan.copy(alpha = 0.5f), fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            
+                            // Divider line
+                            Box(modifier = Modifier.width(1.dp).height(35.dp).background(BorderCyan.copy(alpha = 0.15f)))
+
+                            // Z Axis
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Z-AXIS (Work)", color = UnselectedGrey, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%+07.2f", viewModel.wposZ),
+                                    color = RouterGreen,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text("MPos: ${String.format(java.util.Locale.US, "%.2f", viewModel.mposZ)}", color = BorderCyan.copy(alpha = 0.5f), fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                        
+                        Divider(color = BorderCyan.copy(alpha = 0.15f), thickness = 0.5.dp)
+                        
+                        // Active speed metrics (Feedrate / Spindle RPM)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Laju Aktif (Feed): ${viewModel.activeFeedrate.toInt()} mm/min",
+                                color = TextLight.copy(alpha = 0.8f),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Spindle: ${viewModel.activeSpindle.toInt()} RPM",
+                                color = TextLight.copy(alpha = 0.8f),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Buffer Rf: ${viewModel.fluidNCBufferLines}",
+                                color = TextLight.copy(alpha = 0.8f),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
                 // Connection Configuration Card
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -5562,31 +6044,89 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            if (lang == "id") "PENGIRIM PROGRAM G-CODE SEKARANG" else "CURRENT G-CODE DIRECT STREAMER",
-                            color = RouterGreen,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (lang == "id") "PENGIRIM PROGRAM G-CODE SENDER" else "G-CODE DIRECT STREAMER",
+                                color = RouterGreen,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            if (viewModel.isStreamingToFluidNC) {
+                                val pulseValue by rememberInfiniteTransition().animateFloat(
+                                    initialValue = 0.3f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(1000, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    )
+                                )
+                                Text(
+                                    text = if (viewModel.isStreamPaused) "PAUSED" else "STREAMING",
+                                    color = (if (viewModel.isStreamPaused) Color(0xFFFF9800) else RouterGreen).copy(alpha = if (viewModel.isStreamPaused) 1f else pulseValue),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                        }
 
                         Text(
                             if (lang == "id") 
-                                "Kirim file desain G-Code saat ini baris-demi-baris secara wireless langsung ke FluidNC."
-                                else "Stream the currently compiled laser/spindle G-code straight to FluidNC parser over IP network.",
+                                "Kirim file desain G-Code saat ini baris-demi-baris secara wireless langsung ke FluidNC dengan kecepatan tinggi."
+                                else "Stream the currently compiled laser/spindle G-code straight to FluidNC parser over IP network at high speed.",
                             color = UnselectedGrey,
                             fontSize = 10.sp
                         )
+
+                        // USER TUNABLE DELAY SLIDER
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.background(SlateDark.copy(alpha = 0.4f), RoundedCornerShape(8.dp)).padding(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (lang == "id") "Sela Kirim Laju Pasif (Delay):" else "Tx Speed Delay:",
+                                    color = UnselectedGrey,
+                                    fontSize = 9.sp
+                                )
+                                Text(
+                                    "${viewModel.fluidNCStreamDelay.toInt()} ms",
+                                    color = RouterGreen,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Slider(
+                                value = viewModel.fluidNCStreamDelay,
+                                onValueChange = { viewModel.fluidNCStreamDelay = it },
+                                valueRange = 0f..250f,
+                                colors = SliderDefaults.colors(thumbColor = RouterGreen, activeTrackColor = RouterGreen)
+                            )
+                            Text(
+                                if (lang == "id") "*Setel ke 0-20ms untuk pengiriman ultra-cepat sama seperti PC CNC sender." 
+                                else "*Set to 0-20ms for instant high-speed ping-pong streaming like a PC CNC controller.",
+                                color = UnselectedGrey.copy(alpha = 0.7f),
+                                fontSize = 8.sp,
+                                lineHeight = 10.sp
+                            )
+                        }
 
                         if (viewModel.isStreamingToFluidNC) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
+                                ) {
                                     Text(
-                                        if (lang == "id") "Mengirim: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal}" 
-                                        else "Streaming: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal} lines",
+                                        if (lang == "id") "Baris: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal}" 
+                                        else "Progress: ${viewModel.fluidNCStreamCurrentIndex} / ${viewModel.fluidNCStreamTotal} lines",
                                         color = RouterGreen,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -5606,14 +6146,64 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
                                     trackColor = SlateDark,
                                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Button(
-                                    onClick = { viewModel.stopStreamingGCode() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth().height(36.dp)
+                                
+                                // Advanced diagnostic counters
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(if (lang == "id") "HENTIKAN KIRIM" else "CANCEL STREAM", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "Elapsed: ${viewModel.elapsedStreamingTimeSec}s",
+                                        color = UnselectedGrey,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        "Remaining: ~${viewModel.estimatedStreamingTimeSec}s",
+                                        color = UnselectedGrey,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                // Stream controllers (Acknowledge state transition HOLD/RESUME/STOP)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (viewModel.isStreamPaused) {
+                                        Button(
+                                            onClick = { viewModel.resumeStreamingGCode() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800), contentColor = SlateDark),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f).height(36.dp),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(if (lang == "id") "RESUME (~)" else "RESUME (~)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { viewModel.pauseStreamingGCode() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63), contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f).height(36.dp),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(if (lang == "id") "HOLD (!)" else "PAUSE (!)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    Button(
+                                        onClick = { viewModel.stopStreamingGCode() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).height(36.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text(if (lang == "id") "RESET (STOP)" else "ABORT (STOP)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         } else {
@@ -5844,544 +6434,6 @@ fun FluidNCControlPane(viewModel: GCodeViewModel) {
             }
         }
     }
-}
-
-// ==========================================
-// PANE 9: OFF-LINE DXF TO G-CODE PLOTTER
-// ==========================================
-@Composable
-fun DXFConverterPane(viewModel: GCodeViewModel) {
-    val lang = viewModel.language
-    val context = LocalContext.current
-    
-    // File open picker contract
-    val dxfPickerLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                if (inputStream != null) {
-                    val name = getFileNameFromUri(context, uri)
-                    viewModel.importDxfFromStream(inputStream, name)
-                } else {
-                    Toast.makeText(context, "Could not open file", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    val tTitle = if (lang == "id") "Konverter Vektor DXF CAD" else "DXF CAD Vector Plotter"
-    val tDesc = if (lang == "id") 
-        "Ubah file desain draft CAD standard (.dxf) langsung ke G-code berkualitas tinggi secara offline tanpa internet." 
-        else "Process standard AutoCAD/Inkscape DXF draft drawings directly into G-code entirely offline."
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Hero Header
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                tTitle,
-                color = PrimaryCyan,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                tDesc,
-                color = TextLight.copy(alpha = 0.8f),
-                fontSize = 11.sp,
-                lineHeight = 14.sp
-            )
-        }
-
-        // Main action / File status
-        if (viewModel.dxfFileName == null) {
-            // Upload card mimicking a plotter machine loading slot
-            Card(
-                onClick = { dxfPickerLauncher.launch("*/*") },
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.5.dp, BorderCyan.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        Icons.Default.Share, 
-                        contentDescription = "Upload DXF", 
-                        tint = PrimaryCyan,
-                        modifier = Modifier.size(44.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        if (lang == "id") "Buka / Impor File DXF CAD" else "Open DXF CAD Drawing",
-                        color = TextLight,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        if (lang == "id") "Klik untuk memilih file .dxf lokal" else "Click to select a local .dxf draw file",
-                        color = UnselectedGrey,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        } else {
-            // Status Card for parsed elements
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = RouterGreen, modifier = Modifier.size(24.dp))
-                            Column {
-                                Text(
-                                    viewModel.dxfFileName ?: "CAD Drawing",
-                                    color = TextLight,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    if (lang == "id") "Elemen Terproses: ${viewModel.dxfRawPaths.size} rute pen-down" 
-                                    else "Parsed Entities: ${viewModel.dxfRawPaths.size} pen-down paths",
-                                    color = UnselectedGrey,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-
-                        // Close/Clear vector
-                        IconButton(onClick = {
-                            viewModel.dxfFileName = null
-                            viewModel.dxfRawPaths = emptyList()
-                            viewModel.activePaths = emptyList()
-                            viewModel.currentGCode = ""
-                        }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.Red.copy(alpha = 0.8f))
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { dxfPickerLauncher.launch("*/*") },
-                            colors = ButtonDefaults.buttonColors(containerColor = SlateDark, contentColor = PrimaryCyan),
-                            border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.3f)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(38.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(if (lang == "id") "GANTI FILE" else "CHANGE FILE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            onClick = {
-                                viewModel.applyDxfPathsAndCompile()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan.copy(alpha = 0.15f), contentColor = PrimaryCyan),
-                            border = BorderStroke(1.dp, PrimaryCyan.copy(alpha = 0.4f)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f).height(38.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(if (lang == "id") "REFRESH TRACE" else "RE-PLOT TRACE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Processing Loading Indicator
-        if (viewModel.isProcessingDxf) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(color = PrimaryCyan, modifier = Modifier.size(24.dp))
-                    Text(
-                        if (lang == "id") "Mengkalkulasi rute gerak desain..." else "Compiling vector G-code elements...",
-                        color = TextLight,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
-
-        // Parsing error feedback
-        viewModel.dxfProcessError?.let { err ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.Red.copy(alpha = 0.15f)),
-                border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    err,
-                    color = Color.Red,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }        // Scaling & Presets settings responsive blocks
-        if (viewModel.dxfRawPaths.isNotEmpty()) {
-            ResponsiveFlexLayout(spacing = 16.dp) {
-                FlexItem(expandedWeight = 1f) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = CardDark),
-                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                if (lang == "id") "DONGKRAK SKALA DAN SISTEM UNIT" else "SCALE CALIBRATION & MEASURE",
-                                color = PrimaryCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-
-                            // Unit systems Segment
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    if (lang == "id") "Sistem Unit File DXF Asal:" else "Source file unit system:",
-                                    color = UnselectedGrey,
-                                    fontSize = 10.sp
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Button(
-                                        onClick = { 
-                                            viewModel.dxfUnitIsInch = false
-                                            viewModel.applyDxfPathsAndCompile()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (!viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
-                                            contentColor = if (!viewModel.dxfUnitIsInch) SlateDark else TextLight
-                                        ),
-                                        border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f).height(34.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text("Millimeters (mm)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    Button(
-                                        onClick = { 
-                                            viewModel.dxfUnitIsInch = true
-                                            viewModel.applyDxfPathsAndCompile()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (viewModel.dxfUnitIsInch) PrimaryCyan else SlateDark,
-                                            contentColor = if (viewModel.dxfUnitIsInch) SlateDark else TextLight
-                                        ),
-                                        border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f).height(34.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text("Inches (in)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-
-                            // Scaler Slider
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        if (lang == "id") "Rasio Skala Desain:" else "Design scale ratio:",
-                                        color = UnselectedGrey,
-                                        fontSize = 10.sp
-                                    )
-                                    Text(
-                                        String.format("%.2f x", viewModel.dxfScaleFactor),
-                                        color = PrimaryCyan,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-
-                                Slider(
-                                    value = viewModel.dxfScaleFactor,
-                                    onValueChange = { 
-                                        viewModel.dxfScaleFactor = it 
-                                    },
-                                    onValueChangeFinished = {
-                                        viewModel.applyDxfPathsAndCompile()
-                                    },
-                                    valueRange = 0.1f..10.0f,
-                                    colors = SliderDefaults.colors(thumbColor = PrimaryCyan, activeTrackColor = PrimaryCyan)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                FlexItem(expandedWeight = 1.2f) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = CardDark),
-                        border = BorderStroke(1.dp, BorderCyan.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                if (lang == "id") "PREFERENSI MESIN CNC PILIHAN" else "CNC COMPILATION PRESETS",
-                                color = PrimaryCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-
-                            // Tool Choice Picker
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val toolLaser = viewModel.toolType == "LASER"
-                                Button(
-                                    onClick = { 
-                                        viewModel.toolType = "LASER"
-                                        viewModel.applyDxfPathsAndCompile()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (toolLaser) PrimaryCyan else SlateDark,
-                                        contentColor = if (toolLaser) SlateDark else TextLight
-                                    ),
-                                    border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.weight(1f).height(34.dp),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Text(if (lang == "id") "LASER POTONG" else "LASER CUTTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                Button(
-                                    onClick = { 
-                                        viewModel.toolType = "ROUTER"
-                                        viewModel.applyDxfPathsAndCompile()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (!toolLaser) PrimaryCyan else SlateDark,
-                                        contentColor = if (!toolLaser) SlateDark else TextLight
-                                    ),
-                                    border = BorderStroke(0.5.dp, BorderCyan.copy(alpha = 0.3f)),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.weight(1f).height(34.dp),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Text(if (lang == "id") "SPINDLE CNC" else "SPINDLE ROUTER", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            // Status details Row
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(if (lang == "id") "Kecepatan Potong:" else "Feedrate:", color = UnselectedGrey, fontSize = 9.sp)
-                                    Text("${viewModel.feedrateCut.toInt()} mm/min", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                }
-                                Column {
-                                    Text(if (lang == "id") "Kedalaman Potong Z:" else "Target Depth Z:", color = UnselectedGrey, fontSize = 9.sp)
-                                    Text("${viewModel.targetCutZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                }
-                                Column {
-                                    Text(if (lang == "id") "Step Per Pass:" else "Depth Step:", color = UnselectedGrey, fontSize = 9.sp)
-                                    Text("${viewModel.zStepPerPass} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                }
-                                Column {
-                                    Text(if (lang == "id") "Ketinggian Aman:" else "Safe Height Z:", color = UnselectedGrey, fontSize = 9.sp)
-                                    Text("${viewModel.safeZ} mm", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                }
-                            }
-
-                            Text(
-                                if (lang == "id") 
-                                    "*Edit preferensi dan kecepatan ini sewaktu-waktu secara mendalam melalui panel SETTINGS."
-                                    else "Tune feedrates, laser commands, and cutter shapes over on the SETTINGS tab.",
-                                color = UnselectedGrey,
-                                fontSize = 9.sp,
-                                style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-            // Successfully compilation output feedback
-            if (viewModel.currentGCode.isNotEmpty()) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = CardDark),
-                    border = BorderStroke(1.dp, RouterGreen.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(modifier = Modifier.size(8.dp).background(RouterGreen, androidx.compose.foundation.shape.CircleShape))
-                                Text(
-                                    if (lang == "id") "G-CODE TERKOMPILASI" else "SUCCESSFULLY COMPILED G-CODE",
-                                    color = RouterGreen,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                            
-                            Text(
-                                if (lang == "id") "${viewModel.parsedSegments.size} segment rute" else "${viewModel.parsedSegments.size} vector paths",
-                                color = UnselectedGrey,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        Text(
-                            if (lang == "id") 
-                                "G-code berhasil diekstrak dan didesinfeksi dari vector DXF Anda. Sekarang Anda dapat:"
-                                else "CNC instructions generated perfectly from CAD elements. You can now choose what to do:",
-                            color = TextLight.copy(alpha = 0.8f),
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Link connection trigger
-                            Button(
-                                onClick = { 
-                                    viewModel.sendFluidCommand("\$X") 
-                                    Toast.makeText(context, if (lang == "id") "Membuka Panel Streamer FluidNC..." else "Opening FluidNC Wi-Fi controls...", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryCyan, contentColor = SlateDark),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1.2f).height(38.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text(if (lang == "id") "KIRIM WI-FI ⚡" else "SEND TO MACHINE ⚡", fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            }
-
-                            // Download / Save local project representation
-                            Button(
-                                onClick = { 
-                                    try {
-                                        val saveName = viewModel.dxfFileName?.replace(".dxf", ".nc") ?: "output.nc"
-                                        viewModel.saveProject(saveName)
-                                        Toast.makeText(context, if (lang == "id") "Tersimpan ke FILES!" else "Saved to local FILES list!", Toast.LENGTH_LONG).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = SlateDark, contentColor = RouterGreen),
-                                border = BorderStroke(1.dp, RouterGreen.copy(alpha = 0.4f)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f).height(38.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text(if (lang == "id") "SIMPAN FILE" else "SAVE WORKSPACE", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-private fun getFileNameFromUri(context: android.content.Context, uri: android.net.Uri): String {
-    var result: String? = null
-    if (uri.scheme == "content") {
-        val cursor = context.contentResolver.query(uri, null, null, null, null)
-        try {
-            if (cursor != null && cursor.moveToFirst()) {
-                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) {
-                    result = cursor.getString(index)
-                }
-            }
-        } finally {
-            cursor?.close()
-        }
-    }
-    if (result == null) {
-        result = uri.path
-        val cut = result?.lastIndexOf('/') ?: -1
-        if (cut != -1) {
-            result = result?.substring(cut + 1)
-        }
-    }
-    return result ?: "drawing.dxf"
 }
 
 @Composable
